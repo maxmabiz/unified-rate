@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 import dayjs from 'dayjs';
 import { HISTORY_CALENDAR_DAYS, HISTORY_SEED_DAYS } from '@/constants';
 import type { AppSnapshot, BufferConfig, DateRange, EnrichedPair, FxPairState, RateDailyRow } from '@/types';
-import { createInitialSnapshot, mockBarForDate, tradingBars } from '@/mock/seed';
+import { createInitialSnapshot, createConfiguredPair, mockBarForDate, tradingBars } from '@/mock/seed';
 import { calendarDaysInRange, lastNCalendarDays, nowText } from '@/utils/date';
 import {
   averageFromHistory,
@@ -24,6 +24,9 @@ interface RateStoreValue {
   recalculate: () => void;
   saveGlobalBuffer: (config: BufferConfig) => void;
   savePairBuffer: (id: string, config: BufferConfig) => void;
+  addPair: (input: { currency1: string; currency2: string; reutersCode: string }) => { ok: boolean; error?: string };
+  updatePair: (id: string, input: { reutersCode: string }) => { ok: boolean; error?: string };
+  setPairEnabled: (id: string, enabled: boolean) => { ok: boolean; error?: string };
 }
 
 const RateStoreContext = createContext<RateStoreValue | null>(null);
@@ -116,6 +119,11 @@ export function RateProvider({ children }: { children: ReactNode }) {
   const syncAll = useCallback(async (range: DateRange) => {
     if (syncing) return { ok: false, error: '正在同步中' };
 
+    const enabledCount = snapshot.pairs.filter((pair) => pair.enabled).length;
+    if (enabledCount === 0) {
+      return { ok: false, error: '请先启用至少一个货币对' };
+    }
+
     const rangeDays = calendarDaysInRange(range.start, range.end);
     if (rangeDays.length === 0) {
       return { ok: false, error: '请选择有效时间段' };
@@ -126,10 +134,9 @@ export function RateProvider({ children }: { children: ReactNode }) {
       ...prev,
       lastSyncStatus: '同步中',
       lastSyncRange: range,
-      pairs: prev.pairs.map((pair) => ({
-        ...pair,
-        syncStatus: '同步中',
-      })),
+      pairs: prev.pairs.map((pair) =>
+        pair.enabled ? { ...pair, syncStatus: '同步中' } : pair,
+      ),
     }));
     await wait(1400);
 
@@ -143,11 +150,11 @@ export function RateProvider({ children }: { children: ReactNode }) {
         lastSyncAt: syncedAt,
         lastSyncStatus: '失败',
         lastSyncRange: range,
-        pairs: prev.pairs.map((pair) => ({
-          ...pair,
-          lastSyncAt: syncedAt,
-          syncStatus: '失败',
-        })),
+        pairs: prev.pairs.map((pair) =>
+          pair.enabled
+            ? { ...pair, lastSyncAt: syncedAt, syncStatus: '失败' }
+            : pair,
+        ),
       }));
       setSyncing(false);
       return { ok: false };
@@ -160,11 +167,13 @@ export function RateProvider({ children }: { children: ReactNode }) {
       lastSyncStatus: '正常',
       lastSyncRange: range,
       lastCalculatedAt: calculatedAt,
-      pairs: prev.pairs.map((pair) => applySuccessfulSync(pair, syncedAt, rangeDays)),
+      pairs: prev.pairs.map((pair) =>
+        pair.enabled ? applySuccessfulSync(pair, syncedAt, rangeDays) : pair,
+      ),
     }));
     setSyncing(false);
     return { ok: true };
-  }, [syncing]);
+  }, [syncing, snapshot.pairs]);
 
   const recalculate = useCallback(() => {
     setCalculating(true);
@@ -202,6 +211,68 @@ export function RateProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  const addPair = useCallback((input: { currency1: string; currency2: string; reutersCode: string }) => {
+    const currency1 = input.currency1.trim().toUpperCase();
+    const currency2 = input.currency2.trim().toUpperCase();
+    const reutersCode = input.reutersCode.trim();
+    if (!currency1 || !currency2) return { ok: false, error: '请选择基准货币和计价货币' };
+    if (currency1 === currency2) return { ok: false, error: '基准货币和计价货币不能相同' };
+    if (!reutersCode) return { ok: false, error: '请填写 Reuters 代码' };
+
+    const id = `${currency1}${currency2}`;
+    const exists = snapshot.pairs.some((pair) => pair.id === id);
+    if (exists) return { ok: false, error: '该货币对已存在，可直接启用或编辑' };
+    const ricTaken = snapshot.pairs.some((pair) => pair.reutersCode === reutersCode);
+    if (ricTaken) return { ok: false, error: 'Reuters 代码已被其他货币对使用' };
+
+    setSnapshot((prev) => ({
+      ...prev,
+      lastCalculatedAt: nowText(),
+      pairs: [
+        ...prev.pairs,
+        createConfiguredPair(
+          { currency1, currency2, reutersCode },
+          prev.globalBuffer,
+          nowText(),
+        ),
+      ],
+    }));
+    return { ok: true };
+  }, [snapshot.pairs]);
+
+  const updatePair = useCallback((id: string, input: { reutersCode: string }) => {
+    const reutersCode = input.reutersCode.trim();
+    if (!reutersCode) return { ok: false, error: '请填写 Reuters 代码' };
+    const ricTaken = snapshot.pairs.some((pair) => pair.id !== id && pair.reutersCode === reutersCode);
+    if (ricTaken) return { ok: false, error: 'Reuters 代码已被其他货币对使用' };
+
+    setSnapshot((prev) => ({
+      ...prev,
+      pairs: prev.pairs.map((pair) =>
+        pair.id === id
+          ? { ...pair, reutersCode, configUpdatedAt: nowText() }
+          : pair,
+      ),
+    }));
+    return { ok: true };
+  }, [snapshot.pairs]);
+
+  const setPairEnabled = useCallback((id: string, enabled: boolean) => {
+    const target = snapshot.pairs.find((pair) => pair.id === id);
+    if (!target) return { ok: false, error: '货币对不存在' };
+
+    setSnapshot((prev) => ({
+      ...prev,
+      lastCalculatedAt: enabled ? nowText() : prev.lastCalculatedAt,
+      pairs: prev.pairs.map((pair) =>
+        pair.id === id
+          ? { ...pair, enabled, configUpdatedAt: nowText() }
+          : pair,
+      ),
+    }));
+    return { ok: true };
+  }, [snapshot.pairs]);
+
   const value = useMemo<RateStoreValue>(
     () => ({
       lastSyncAt: snapshot.lastSyncAt,
@@ -217,6 +288,9 @@ export function RateProvider({ children }: { children: ReactNode }) {
       recalculate,
       saveGlobalBuffer,
       savePairBuffer,
+      addPair,
+      updatePair,
+      setPairEnabled,
     }),
     [
       snapshot.lastSyncAt,
@@ -232,6 +306,9 @@ export function RateProvider({ children }: { children: ReactNode }) {
       recalculate,
       saveGlobalBuffer,
       savePairBuffer,
+      addPair,
+      updatePair,
+      setPairEnabled,
     ],
   );
 

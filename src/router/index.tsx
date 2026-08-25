@@ -2,16 +2,23 @@ import { Navigate, createBrowserRouter } from 'react-router-dom';
 import MainLayout from '@/layouts/MainLayout';
 import RateDataPage from '@/pages/RateDataPage';
 import BusinessRatesPage from '@/pages/BusinessRatesPage';
+import PairConfigPage from '@/pages/PairConfigPage';
 
-export const router = createBrowserRouter([
-  {
-    path: '/',
-    element: <MainLayout />,
-    children: [
-      { index: true, element: <Navigate to="/unified-rate/data" replace /> },
-      { path: 'unified-rate/data', element: <RateDataPage /> },
-      { path: 'unified-rate/business-rates', element: <BusinessRatesPage /> },
-      { path: '*', element: <Navigate to="/unified-rate/data" replace /> },
-    ],
-  },
-]);
+const basename = import.meta.env.BASE_URL.replace(/\/$/, '') || undefined;
+
+export const router = createBrowserRouter(
+  [
+    {
+      path: '/',
+      element: <MainLayout />,
+      children: [
+        { index: true, element: <Navigate to="/data" replace /> },
+        { path: 'data', element: <RateDataPage /> },
+        { path: 'business-rates', element: <BusinessRatesPage /> },
+        { path: 'pairs', element: <PairConfigPage /> },
+        { path: '*', element: <Navigate to="/data" replace /> },
+      ],
+    },
+  ],
+  { basename },
+);

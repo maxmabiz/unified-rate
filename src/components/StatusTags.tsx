@@ -15,6 +15,10 @@ export function WarningTag() {
   return <Tag color="warning">波动预警</Tag>;
 }
 
+export function EnabledTag({ enabled }: { enabled: boolean }) {
+  return enabled ? <Tag color="success">启用</Tag> : <Tag>停用</Tag>;
+}
+
 export function EffectiveTag({ warning }: { warning?: boolean }) {
   return (
     <Space size={4} wrap>

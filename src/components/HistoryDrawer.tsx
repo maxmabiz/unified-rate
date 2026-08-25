@@ -20,28 +20,33 @@ export default function HistoryDrawer({ pairLabel, history, open, onClose }: His
       width: 120,
     },
     {
-      title: '开盘 Open',
+      title: '开盘',
       dataIndex: 'open',
+      align: 'right',
       render: (value: string) => <span className="num-cell">{formatRate(value, 4)}</span>,
     },
     {
-      title: '最高 High',
+      title: '最高',
       dataIndex: 'high',
+      align: 'right',
       render: (value: string) => <span className="num-cell">{formatRate(value, 4)}</span>,
     },
     {
-      title: '最低 Low',
+      title: '最低',
       dataIndex: 'low',
+      align: 'right',
       render: (value: string) => <span className="num-cell">{formatRate(value, 4)}</span>,
     },
     {
-      title: '收盘 Close',
+      title: '收盘',
       dataIndex: 'close',
+      align: 'right',
       render: (value: string) => <span className="num-cell">{formatRate(value, 4)}</span>,
     },
     {
       title: '当日平均',
       key: 'avg',
+      align: 'right',
       render: (_, record) => (
         <span className="num-cell">{formatRate(dailyAverage(record.high, record.low), 4)}</span>
       ),
@@ -53,7 +58,7 @@ export default function HistoryDrawer({ pairLabel, history, open, onClose }: His
   return (
     <Drawer
       title={pairLabel ? `${pairLabel} 近7日数据` : '近7日数据'}
-      width={880}
+      width={760}
       open={open}
       onClose={onClose}
       destroyOnHidden
@@ -67,7 +72,7 @@ export default function HistoryDrawer({ pairLabel, history, open, onClose }: His
         columns={columns}
         dataSource={history}
       />
-      <div style={{ marginTop: 16, padding: '12px 16px', background: '#fafafa', border: '1px solid #f0f0f0' }}>
+      <div className="summary-box">
         <Text>最近7日平均汇率 = 最近7个交易日「单日平均汇率」的平均值</Text>
         <div style={{ marginTop: 8 }}>
           <Text type="secondary">最近7日平均汇率：</Text>

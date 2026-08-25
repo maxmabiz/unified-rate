@@ -16,16 +16,32 @@ export default function App() {
         token: {
           colorPrimary: '#1677ff',
           borderRadius: 6,
-          fontSize: 16,
-          fontSizeLG: 18,
-          fontSizeSM: 14,
-          controlHeight: 36,
+          fontSize: 14,
+          fontSizeLG: 16,
+          fontSizeSM: 12,
+          controlHeight: 32,
+          colorBgLayout: '#f5f6f8',
         },
         components: {
+          Layout: {
+            headerHeight: 52,
+            headerBg: '#fff',
+            siderBg: '#001529',
+          },
           Table: {
-            headerBg: '#fafafa',
-            cellPaddingBlock: 14,
-            cellPaddingInline: 16,
+            headerBg: '#f7f8fa',
+            headerColor: 'rgba(0, 0, 0, 0.65)',
+            headerSplitColor: '#f0f0f0',
+            cellPaddingBlock: 10,
+            cellPaddingInline: 12,
+            fontSize: 13,
+          },
+          Card: {
+            paddingLG: 20,
+          },
+          Menu: {
+            darkItemBg: '#001529',
+            darkSubMenuItemBg: '#000c17',
           },
         },
       }}

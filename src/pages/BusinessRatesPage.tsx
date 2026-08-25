@@ -35,18 +35,19 @@ export default function BusinessRatesPage() {
   const [editingPair, setEditingPair] = useState<EnrichedPair | null>(null);
   const [rulePair, setRulePair] = useState<EnrichedPair | null>(null);
 
-  const warningCount = pairs.filter((item) => item.hasVolatilityWarning).length;
-  const currencies1 = [...new Set(pairs.map((item) => item.currency1))];
-  const currencies2 = [...new Set(pairs.map((item) => item.currency2))];
+  const quotePairs = useMemo(() => pairs.filter((item) => item.enabled), [pairs]);
+  const warningCount = quotePairs.filter((item) => item.hasVolatilityWarning).length;
+  const currencies1 = [...new Set(quotePairs.map((item) => item.currency1))];
+  const currencies2 = [...new Set(quotePairs.map((item) => item.currency2))];
 
   const filtered = useMemo(() => {
-    return pairs.filter((item) => {
+    return quotePairs.filter((item) => {
       if (filters.currency1 && item.currency1 !== filters.currency1) return false;
       if (filters.currency2 && item.currency2 !== filters.currency2) return false;
       if (filters.pair && item.pair !== filters.pair) return false;
       return true;
     });
-  }, [filters, pairs]);
+  }, [filters, quotePairs]);
 
   const handleSaveGlobal = (config: BufferConfig) => {
     saveGlobalBuffer(config);
@@ -62,50 +63,60 @@ export default function BusinessRatesPage() {
   };
 
   const columns: ColumnsType<EnrichedPair> = [
-    { title: '更新日期', dataIndex: 'updateDate', width: '10%' },
-    { title: '货币1', dataIndex: 'currency1', width: '7%' },
-    { title: '货币2', dataIndex: 'currency2', width: '7%' },
-    { title: '业务报价货币对', dataIndex: 'pair', width: '12%' },
+    { title: '更新日期', dataIndex: 'updateDate', width: 112 },
     {
-      title: '最近7日平均汇率',
+      title: '货币对',
+      dataIndex: 'pairLabel',
+      width: 112,
+    },
+    {
+      title: '7日均价',
       dataIndex: 'avg7',
       align: 'right',
-      width: '12%',
+      width: 112,
       render: (value: string) => <span className="num-cell">{formatRate(value, 4)}</span>,
     },
     {
-      title: '综合缓冲因子',
+      title: '综合缓冲',
       dataIndex: 'combinedBuffer',
       align: 'right',
-      width: '10%',
+      width: 96,
       render: (value: string) => formatPercent(value),
     },
     {
       title: (
-        <Tooltip title="客户结算币种为货币1时的报价汇率">
-          <span>货币1报价</span>
+        <Tooltip title="客户以基准货币（货币对左侧，如 USD/CNY 中的 USD）结算时使用的报价，按均价下浮后向下取整">
+          <span>基准货币报价</span>
         </Tooltip>
       ),
       dataIndex: 'quoteCcy1',
       align: 'right',
-      width: '9%',
-      render: (value: string) => <span className="num-cell">{formatRate(value, 1)}</span>,
+      width: 120,
+      render: (value: string, record) => (
+        <Tooltip title={`${record.currency1} 结算`}>
+          <span className="num-cell quote-cell">{formatRate(value, 1)}</span>
+        </Tooltip>
+      ),
     },
     {
       title: (
-        <Tooltip title="客户结算币种为货币2时的报价汇率">
-          <span>货币2报价</span>
+        <Tooltip title="客户以计价货币（货币对右侧，如 USD/CNY 中的 CNY）结算时使用的报价，按均价上浮后向上取整">
+          <span>计价货币报价</span>
         </Tooltip>
       ),
       dataIndex: 'quoteCcy2',
       align: 'right',
-      width: '9%',
-      render: (value: string) => <span className="num-cell">{formatRate(value, 1)}</span>,
+      width: 120,
+      render: (value: string, record) => (
+        <Tooltip title={`${record.currency2} 结算`}>
+          <span className="num-cell quote-cell">{formatRate(value, 1)}</span>
+        </Tooltip>
+      ),
     },
     {
       title: '状态',
       key: 'status',
-      width: '10%',
+      width: 128,
       render: (_, record) => (
         <Tooltip title={record.hasVolatilityWarning ? VOLATILITY_WARNING_TEXT : undefined}>
           <span>
@@ -117,14 +128,14 @@ export default function BusinessRatesPage() {
     {
       title: '操作',
       key: 'action',
-      width: '14%',
+      width: 168,
       render: (_, record) => (
         <Space size={12}>
           <Button type="link" onClick={() => setRulePair(record)}>
-            查看计算规则
+            计算规则
           </Button>
           <Button type="link" onClick={() => setEditingPair(record)}>
-            修改缓冲因子
+            缓冲因子
           </Button>
         </Space>
       ),
@@ -136,72 +147,74 @@ export default function BusinessRatesPage() {
       <div className="page-header">
         <Title level={3}>业务报价汇率</Title>
         <Paragraph className="page-desc">
-          展示根据最近7个交易日平均汇率和综合缓冲因子计算出的业务可用报价汇率。
+          按近 7 个交易日均价和综合缓冲因子，生成两个结算方向的可用报价。
         </Paragraph>
       </div>
 
       {warningCount > 0 ? (
         <Alert
+          className="page-alert"
           type="warning"
           showIcon
-          title={VOLATILITY_WARNING_TEXT}
-          style={{ marginBottom: 16 }}
+          message={VOLATILITY_WARNING_TEXT}
         />
       ) : null}
 
       <Card className="page-card" variant="outlined">
-        <div className="meta-bar">
-          <div className="meta-items">
-            <div className="meta-item">
-              <span className="label">最近计算时间</span>
-              <span className="value">{formatDateTime(lastCalculatedAt)}</span>
+        <div className="meta-strip">
+          <div className="meta-stats">
+            <div className="meta-stat">
+              <span className="k">最近计算时间</span>
+              <span className="v">{formatDateTime(lastCalculatedAt)}</span>
             </div>
-            <div className="meta-item">
-              <span className="label">综合缓冲因子</span>
-              <span className="value">{formatPercent(combinedBufferOf(globalBuffer))}</span>
+            <div className="meta-stat">
+              <span className="k">综合缓冲因子</span>
+              <span className="v">{formatPercent(combinedBufferOf(globalBuffer))}</span>
             </div>
           </div>
-          <Space>
-            <Button icon={<SettingOutlined />} onClick={() => setBufferOpen(true)}>
-              缓冲因子配置
-            </Button>
-            <Button
-              type="primary"
-              icon={<CalculatorOutlined />}
-              loading={calculating}
-              onClick={() => {
-                recalculate();
-                message.success('已按当前市场数据和缓冲因子重新计算');
-              }}
-            >
-              重新计算
-            </Button>
-          </Space>
+          <div className="meta-actions">
+            <Space>
+              <Button icon={<SettingOutlined />} onClick={() => setBufferOpen(true)}>
+                缓冲因子配置
+              </Button>
+              <Button
+                type="primary"
+                icon={<CalculatorOutlined />}
+                loading={calculating}
+                onClick={() => {
+                  recalculate();
+                  message.success('已按当前市场数据和缓冲因子重新计算');
+                }}
+              >
+                重新计算
+              </Button>
+            </Space>
+          </div>
         </div>
 
-        <Form className="filter-row" form={form} layout="inline" colon={false} onFinish={setFilters}>
-          <Form.Item name="currency1" label="货币1">
+        <Form className="filter-bar" form={form} layout="inline" colon={false} onFinish={setFilters}>
+          <Form.Item name="currency1" label="基准货币">
             <Select
               allowClear
               placeholder="全部"
-              style={{ width: 140 }}
+              style={{ width: 120 }}
               options={currencies1.map((item) => ({ value: item, label: item }))}
             />
           </Form.Item>
-          <Form.Item name="currency2" label="货币2">
+          <Form.Item name="currency2" label="计价货币">
             <Select
               allowClear
               placeholder="全部"
-              style={{ width: 140 }}
+              style={{ width: 120 }}
               options={currencies2.map((item) => ({ value: item, label: item }))}
             />
           </Form.Item>
-          <Form.Item name="pair" label="业务报价货币对">
+          <Form.Item name="pair" label="货币对">
             <Select
               allowClear
               placeholder="全部"
-              style={{ width: 180 }}
-              options={pairs.map((item) => ({ value: item.pair, label: item.pair }))}
+              style={{ width: 148 }}
+              options={quotePairs.map((item) => ({ value: item.pair, label: item.pairLabel }))}
             />
           </Form.Item>
           <Form.Item>
@@ -223,18 +236,24 @@ export default function BusinessRatesPage() {
 
         <Table
           className="compact-table"
+          size="middle"
           rowKey="id"
           columns={columns}
           dataSource={filtered}
           tableLayout="fixed"
-          pagination={{ pageSize: 10, showTotal: (total) => `共 ${total} 条`, showSizeChanger: false }}
+          pagination={{
+            pageSize: 10,
+            showTotal: (total) => `共 ${total} 条`,
+            showSizeChanger: false,
+            size: 'small',
+          }}
           rowClassName={(record) => (record.hasVolatilityWarning ? 'warning-row' : '')}
         />
       </Card>
 
       <BufferConfigModal
         open={bufferOpen}
-        pairs={pairs}
+        pairs={quotePairs}
         initial={globalBuffer}
         onCancel={() => setBufferOpen(false)}
         onSave={handleSaveGlobal}
@@ -242,7 +261,7 @@ export default function BusinessRatesPage() {
       <BufferConfigModal
         open={!!editingPair}
         pair={editingPair}
-        pairs={pairs}
+        pairs={quotePairs}
         initial={
           editingPair
             ? { volatilityBuffer: editingPair.volatilityBuffer, fee: editingPair.fee }

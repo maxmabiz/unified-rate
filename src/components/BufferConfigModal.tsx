@@ -3,6 +3,7 @@ import { Form, InputNumber, Modal, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { BufferConfig, EnrichedPair } from '@/types';
 import { computeQuotes, formatRate, fractionToPercentNumber, percentToFraction } from '@/utils/rateCalc';
+import { tradingBars } from '@/mock/seed';
 
 const { Text } = Typography;
 
@@ -55,10 +56,10 @@ export default function BufferConfigModal({
 
   const previewRows = useMemo<PreviewRow[]>(() => {
     return previewPairs.map((item) => {
-      const after = computeQuotes(item.history, nextConfig);
+      const after = computeQuotes(tradingBars(item.history), nextConfig);
       return {
         key: item.id,
-        pair: item.pair,
+        pair: item.pairLabel,
         avg7: item.avg7,
         before1: item.quoteCcy1,
         before2: item.quoteCcy2,
@@ -69,21 +70,21 @@ export default function BufferConfigModal({
   }, [nextConfig.fee, nextConfig.volatilityBuffer, previewPairs]);
 
   const columns: ColumnsType<PreviewRow> = [
-    { title: '业务报价货币对', dataIndex: 'pair', width: 130 },
+    { title: '货币对', dataIndex: 'pair', width: 110 },
     {
-      title: '最近7日平均汇率',
+      title: '7日均价',
       dataIndex: 'avg7',
       align: 'right',
       render: (value: string) => formatRate(value, 4),
     },
     {
-      title: '修改前报价汇率',
+      title: '修改前报价',
       key: 'before',
       align: 'right',
       render: (_, record) => `${record.before1} / ${record.before2}`,
     },
     {
-      title: '修改后报价汇率',
+      title: '修改后报价',
       key: 'after',
       align: 'right',
       render: (_, record) => `${record.after1} / ${record.after2}`,

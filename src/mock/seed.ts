@@ -120,6 +120,84 @@ export function buildHistoryFromExcel(pair: ExcelPair, endDate: string, calendar
   });
 }
 
+export function buildSimulatedHistory(endDate: string, targetAvg: string, calendarDays = HISTORY_SEED_DAYS): DailyBar[] {
+  const dates = lastNCalendarDays(endDate, calendarDays);
+  const tradingHistory = buildHistory(endDate, targetAvg);
+  const byDate = new Map(tradingHistory.map((bar) => [bar.date, bar]));
+  let previousClose = tradingHistory[0]?.close ?? targetAvg;
+
+  return dates.map((date) => {
+    const existing = byDate.get(date);
+    if (existing) {
+      previousClose = existing.close;
+      return existing;
+    }
+    return toDailyBar(date, {
+      open: previousClose,
+      high: previousClose,
+      low: previousClose,
+      close: previousClose,
+    });
+  });
+}
+
+const TYPICAL_AVG: Record<string, string> = {
+  USDCNY: '7.1200',
+  EURCNY: '8.0500',
+  GBPCNY: '9.0800',
+  EURUSD: '1.1500',
+  GBPUSD: '1.3400',
+  USDHKD: '7.8400',
+  EURGBP: '0.8600',
+  EURHKD: '9.0200',
+  USDJPY: '148.50',
+  EURJPY: '170.20',
+  GBPJPY: '198.40',
+  AUDUSD: '0.6600',
+  USDSGD: '1.3500',
+};
+
+export function typicalAvgFor(currency1: string, currency2: string): string {
+  return TYPICAL_AVG[`${currency1}${currency2}`] ?? '1.0000';
+}
+
+export function createConfiguredPair(
+  input: { currency1: string; currency2: string; reutersCode: string },
+  buffer: BufferConfig,
+  syncedAt = nowLike(),
+): FxPairState {
+  const pair = `${input.currency1}${input.currency2}`;
+  const excelKey = pair as ExcelPair;
+  const history = excelKey in EXCEL_OHLC
+    ? buildHistoryFromExcel(excelKey, INITIAL_DATA_DATE, HISTORY_SEED_DAYS)
+    : buildSimulatedHistory(INITIAL_DATA_DATE, typicalAvgFor(input.currency1, input.currency2));
+  const latestBar = history[history.length - 1];
+  const previousBar = history[history.length - 2];
+
+  return {
+    id: pair,
+    currency1: input.currency1,
+    currency2: input.currency2,
+    pair,
+    pairLabel: `${input.currency1}/${input.currency2}`,
+    reutersCode: input.reutersCode.trim(),
+    latestMarketRate: latestBar.close,
+    previousMarketRate: previousBar.close,
+    dataDate: INITIAL_DATA_DATE,
+    lastSyncAt: INITIAL_SYNC_AT,
+    syncStatus: '正常',
+    history,
+    volatilityBuffer: buffer.volatilityBuffer,
+    fee: buffer.fee,
+    enabled: true,
+    configUpdatedAt: syncedAt,
+  };
+}
+
+function nowLike() {
+  return INITIAL_CALCULATED_AT;
+}
+
 function toPairState(seed: PairSeed, buffer: BufferConfig): FxPairState {
   const pair = `${seed.currency1}${seed.currency2}` as ExcelPair;
   const history = buildHistoryFromExcel(pair, INITIAL_DATA_DATE, HISTORY_SEED_DAYS);
@@ -141,6 +219,8 @@ function toPairState(seed: PairSeed, buffer: BufferConfig): FxPairState {
     history,
     volatilityBuffer: buffer.volatilityBuffer,
     fee: buffer.fee,
+    enabled: true,
+    configUpdatedAt: INITIAL_CALCULATED_AT,
   };
 }
 

@@ -23,6 +23,8 @@ export interface FxPairState {
   history: DailyBar[];
   volatilityBuffer: string;
   fee: string;
+  enabled: boolean;
+  configUpdatedAt: string;
 }
 
 export interface ComputedQuotes {

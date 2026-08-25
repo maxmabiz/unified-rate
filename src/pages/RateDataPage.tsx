@@ -9,6 +9,7 @@ import {
   Select,
   Space,
   Table,
+  Tooltip,
   Typography,
 } from 'antd';
 import { ReloadOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons';
@@ -29,6 +30,10 @@ interface Filters {
   pair?: string;
   dataDate?: string;
   syncStatus?: SyncStatus;
+}
+
+function RateCell({ value }: { value: string }) {
+  return <span className="num-cell">{formatRate(value, 4)}</span>;
 }
 
 export default function RateDataPage() {
@@ -69,37 +74,47 @@ export default function RateDataPage() {
   };
 
   const columns: ColumnsType<RateDailyRow> = [
-    { title: '货币对', dataIndex: 'pairLabel' },
-    { title: '数据日期', dataIndex: 'dataDate' },
-    { title: 'Reuters代码', dataIndex: 'reutersCode' },
+    { title: '货币对', dataIndex: 'pairLabel', width: 96 },
+    { title: '数据日期', dataIndex: 'dataDate', width: 112 },
+    { title: 'Reuters代码', dataIndex: 'reutersCode', width: 112 },
     {
-      title: '开盘 Open',
+      title: <Tooltip title="Open">开盘</Tooltip>,
       dataIndex: 'open',
-      render: (value: string) => <span className="num-cell">{formatRate(value, 4)}</span>,
+      width: 92,
+      align: 'right',
+      render: (value: string) => <RateCell value={value} />,
     },
     {
-      title: '最高 High',
+      title: <Tooltip title="High">最高</Tooltip>,
       dataIndex: 'high',
-      render: (value: string) => <span className="num-cell">{formatRate(value, 4)}</span>,
+      width: 92,
+      align: 'right',
+      render: (value: string) => <RateCell value={value} />,
     },
     {
-      title: '最低 Low',
+      title: <Tooltip title="Low">最低</Tooltip>,
       dataIndex: 'low',
-      render: (value: string) => <span className="num-cell">{formatRate(value, 4)}</span>,
+      width: 92,
+      align: 'right',
+      render: (value: string) => <RateCell value={value} />,
     },
     {
-      title: '收盘 Close',
+      title: <Tooltip title="Close">收盘</Tooltip>,
       dataIndex: 'close',
-      render: (value: string) => <span className="num-cell">{formatRate(value, 4)}</span>,
+      width: 92,
+      align: 'right',
+      render: (value: string) => <RateCell value={value} />,
     },
     {
       title: '最近同步时间',
       dataIndex: 'lastSyncAt',
+      width: 168,
       render: (value: string) => formatDateTime(value),
     },
     {
       title: '同步状态',
       dataIndex: 'syncStatus',
+      width: 148,
       render: (_, record) => (
         <Space size={4} wrap>
           <SyncStatusTag status={record.syncStatus} />
@@ -110,9 +125,10 @@ export default function RateDataPage() {
     {
       title: '操作',
       key: 'action',
+      width: 88,
       render: (_, record) => (
         <Button type="link" onClick={() => setHistoryRow(record)}>
-          查看近7日数据
+          近7日
         </Button>
       ),
     },
@@ -123,55 +139,59 @@ export default function RateDataPage() {
       <div className="page-header">
         <Title level={3}>汇率数据</Title>
         <Paragraph className="page-desc">
-          展示从 Reuters 获取的市场汇率基础数据，为业务报价汇率计算提供数据来源。
+          从 Reuters 同步的市场行情，作为业务报价汇率的计算底稿。
         </Paragraph>
       </div>
 
       {warningCount > 0 ? (
         <Alert
+          className="page-alert"
           type="warning"
           showIcon
-          title={VOLATILITY_WARNING_TEXT}
-          style={{ marginBottom: 16 }}
+          message={VOLATILITY_WARNING_TEXT}
         />
       ) : null}
 
       <Card className="page-card" variant="outlined">
-        <div className="meta-bar">
-          <div className="meta-items">
-            <div className="meta-item">
-              <span className="label">数据来源</span>
-              <span className="value">{DATA_SOURCE}</span>
+        <div className="meta-strip">
+          <div className="meta-stats">
+            <div className="meta-stat">
+              <span className="k">数据来源</span>
+              <span className="v">{DATA_SOURCE}</span>
             </div>
-            <div className="meta-item">
-              <span className="label">更新频率</span>
-              <span className="value">{UPDATE_FREQUENCY}</span>
+            <div className="meta-stat">
+              <span className="k">更新频率</span>
+              <span className="v">{UPDATE_FREQUENCY}</span>
             </div>
-            <div className="meta-item">
-              <span className="label">最近同步时间段</span>
-              <span className="value">{formatSyncRange(lastSyncRange?.start, lastSyncRange?.end)}</span>
+            <div className="meta-stat">
+              <span className="k">最近同步时间段</span>
+              <span className="v">{formatSyncRange(lastSyncRange?.start, lastSyncRange?.end)}</span>
             </div>
-            <div className="meta-item">
-              <span className="label">最近同步时间</span>
-              <span className="value">{formatDateTime(lastSyncAt)}</span>
+            <div className="meta-stat">
+              <span className="k">最近同步时间</span>
+              <span className="v">{formatDateTime(lastSyncAt)}</span>
             </div>
-            <div className="meta-item">
-              <span className="label">当前同步状态</span>
-              <SyncStatusTag status={syncing ? '同步中' : lastSyncStatus} />
+            <div className="meta-stat">
+              <span className="k">当前同步状态</span>
+              <span className="v">
+                <SyncStatusTag status={syncing ? '同步中' : lastSyncStatus} />
+              </span>
             </div>
           </div>
-          <Button
-            type="primary"
-            icon={syncing ? <SyncOutlined spin /> : <ReloadOutlined />}
-            loading={syncing}
-            onClick={() => setSyncOpen(true)}
-          >
-            手动同步
-          </Button>
+          <div className="meta-actions">
+            <Button
+              type="primary"
+              icon={syncing ? <SyncOutlined spin /> : <ReloadOutlined />}
+              loading={syncing}
+              onClick={() => setSyncOpen(true)}
+            >
+              手动同步
+            </Button>
+          </div>
         </div>
 
         <Form
-          className="filter-row"
+          className="filter-bar"
           form={form}
           layout="inline"
           colon={false}
@@ -187,18 +207,18 @@ export default function RateDataPage() {
             <Select
               allowClear
               placeholder="全部"
-              style={{ width: 180 }}
+              style={{ width: 148 }}
               options={pairs.map((item) => ({ value: item.pair, label: item.pairLabel }))}
             />
           </Form.Item>
           <Form.Item name="dataDate" label="数据日期">
-            <DatePicker style={{ width: 180 }} />
+            <DatePicker style={{ width: 148 }} />
           </Form.Item>
           <Form.Item name="syncStatus" label="同步状态">
             <Select
               allowClear
               placeholder="全部"
-              style={{ width: 160 }}
+              style={{ width: 120 }}
               options={['正常', '同步中', '失败'].map((item) => ({ value: item, label: item }))}
             />
           </Form.Item>
@@ -220,12 +240,19 @@ export default function RateDataPage() {
         </Form>
 
         <Table
-          className="compact-table rate-data-table"
+          className="compact-table"
+          size="middle"
           rowKey="id"
           columns={columns}
           dataSource={filtered}
           tableLayout="fixed"
-          pagination={{ pageSize: 20, showTotal: (total) => `共 ${total} 条`, showSizeChanger: true }}
+          sticky
+          pagination={{
+            pageSize: 20,
+            showTotal: (total) => `共 ${total} 条`,
+            showSizeChanger: true,
+            size: 'small',
+          }}
           rowClassName={(record) => (record.hasVolatilityWarning ? 'warning-row' : '')}
         />
       </Card>
@@ -240,7 +267,7 @@ export default function RateDataPage() {
         open={syncOpen}
         loading={syncing}
         defaultRange={lastSyncRange}
-        pairCount={pairs.length}
+        pairCount={pairs.filter((item) => item.enabled).length}
         onCancel={() => {
           if (!syncing) setSyncOpen(false);
         }}

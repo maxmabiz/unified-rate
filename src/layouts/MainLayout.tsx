@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Avatar, Layout, Menu, Space, Tag, Typography, theme } from 'antd';
-import { LineChartOutlined, SwapOutlined, UserOutlined } from '@ant-design/icons';
+import { Avatar, Layout, Menu, Tag, Typography, theme } from 'antd';
+import { LineChartOutlined, UserOutlined } from '@ant-design/icons';
 import { APP_VERSION, APP_VERSION_DATE, SYSTEM_NAME } from '@/constants';
 
 const { Header, Sider, Content } = Layout;
@@ -17,31 +17,28 @@ export default function MainLayout() {
     {
       key: 'unified-rate',
       icon: <LineChartOutlined />,
-      label: '统一汇率',
+      label: SYSTEM_NAME,
       children: [
-        { key: '/unified-rate/data', label: '汇率数据' },
-        { key: '/unified-rate/business-rates', label: '业务报价汇率' },
+        { key: '/pairs', label: '货币对配置' },
+        { key: '/data', label: '汇率数据' },
+        { key: '/business-rates', label: '业务报价汇率' },
       ],
     },
   ];
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed} width={220}>
-        <div
-          style={{
-            height: 64,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#fff',
-            fontWeight: 700,
-            fontSize: collapsed ? 16 : 18,
-            background: token.colorPrimary,
-            letterSpacing: 1,
-          }}
-        >
-          {collapsed ? '汇率' : SYSTEM_NAME}
+    <Layout className="app-shell">
+      <Sider
+        className="app-sider"
+        collapsible
+        collapsed={collapsed}
+        onCollapse={setCollapsed}
+        width={208}
+        theme="dark"
+      >
+        <div className={`app-logo${collapsed ? ' is-collapsed' : ''}`}>
+          <span className="app-logo-mark">汇</span>
+          {collapsed ? null : <span className="app-logo-text">{SYSTEM_NAME}</span>}
         </div>
         <Menu
           theme="dark"
@@ -49,36 +46,33 @@ export default function MainLayout() {
           selectedKeys={[location.pathname]}
           defaultOpenKeys={['unified-rate']}
           items={menuItems}
-          onClick={({ key }) => navigate(key)}
+          onClick={({ key }) => {
+            if (key.startsWith('/')) navigate(key);
+          }}
         />
       </Sider>
       <Layout>
-        <Header
-          style={{
-            padding: '0 24px',
-            background: '#fff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-          }}
-        >
-          <Space>
-            <SwapOutlined style={{ color: token.colorPrimary }} />
-            <Text strong style={{ fontSize: 18 }}>资金中台 · 统一汇率管理</Text>
-            <Tag color="blue">v{APP_VERSION}</Tag>
-            <Text type="secondary">{APP_VERSION_DATE}</Text>
-          </Space>
-          <Space>
-            <Avatar icon={<UserOutlined />} size="small" />
-            <div>
-              <Text>张财务</Text>
-              <br />
-              <Text type="secondary" style={{ fontSize: 14 }}>财务操作员</Text>
+        <Header className="app-header">
+          <div className="app-header-title">
+            <Text strong>资金中台</Text>
+            <span className="app-header-divider" />
+            <Text type="secondary">统一汇率管理</Text>
+            <Tag className="app-version" bordered={false} color="blue">
+              v{APP_VERSION}
+            </Tag>
+            <Text type="secondary" className="app-version-date">
+              {APP_VERSION_DATE}
+            </Text>
+          </div>
+          <div className="app-user">
+            <Avatar icon={<UserOutlined />} size={28} style={{ background: token.colorPrimary }} />
+            <div className="app-user-meta">
+              <span className="name">张财务</span>
+              <span className="role">财务操作员</span>
             </div>
-          </Space>
+          </div>
         </Header>
-        <Content style={{ margin: 24, minHeight: 280 }}>
+        <Content className="app-content">
           <Outlet />
         </Content>
       </Layout>

@@ -95,4 +95,15 @@ describe('汇率数据最近10天模拟', () => {
       close: '6.7491',
     });
   });
+
+  it('新增货币对会生成模拟行情且默认启用', async () => {
+    const { createConfiguredPair } = await import('@/mock/seed');
+    const pair = createConfiguredPair(
+      { currency1: 'USD', currency2: 'JPY', reutersCode: 'USDJPY=' },
+      { volatilityBuffer: '0.04', fee: '0.01' },
+    );
+    expect(pair.enabled).toBe(true);
+    expect(pair.pairLabel).toBe('USD/JPY');
+    expect(pair.history.length).toBeGreaterThanOrEqual(10);
+  });
 });
