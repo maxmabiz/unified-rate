@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
-import { DatePicker, Form, Modal, Typography } from 'antd';
+import { Checkbox, DatePicker, Form, Modal, Typography } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
-import type { DateRange } from '@/types';
+import { RATE_SOURCE_LABEL } from '@/constants';
+import { RATE_SOURCE_IDS, type DateRange, type RateSource } from '@/types';
 import { formatSyncRange, tradingDaysInRange } from '@/utils/date';
 
 const { RangePicker } = DatePicker;
@@ -13,7 +14,7 @@ interface ManualSyncModalProps {
   defaultRange?: DateRange;
   pairCount: number;
   onCancel: () => void;
-  onOk: (range: DateRange) => void;
+  onOk: (range: DateRange, sources: RateSource[]) => void;
 }
 
 export default function ManualSyncModal({
@@ -24,8 +25,9 @@ export default function ManualSyncModal({
   onCancel,
   onOk,
 }: ManualSyncModalProps) {
-  const [form] = Form.useForm<{ period: [Dayjs, Dayjs] }>();
+  const [form] = Form.useForm<{ period: [Dayjs, Dayjs]; sources: RateSource[] }>();
   const period = Form.useWatch('period', form);
+  const sources = Form.useWatch('sources', form) ?? [];
   const start = period?.[0]?.format('YYYY-MM-DD');
   const end = period?.[1]?.format('YYYY-MM-DD');
   const tradingDays = start && end ? tradingDaysInRange(start, end) : [];
@@ -36,6 +38,7 @@ export default function ManualSyncModal({
     const endDate = defaultRange?.end ?? startDate;
     form.setFieldsValue({
       period: [dayjs(startDate), dayjs(endDate)],
+      sources: [...RATE_SOURCE_IDS],
     });
   }, [defaultRange, form, open]);
 
@@ -47,24 +50,40 @@ export default function ManualSyncModal({
       onOk={() => void form.submit()}
       okText="开始同步"
       confirmLoading={loading}
-      okButtonProps={{ disabled: tradingDays.length === 0 }}
+      okButtonProps={{ disabled: tradingDays.length === 0 || sources.length === 0 }}
       maskClosable={!loading}
       keyboard={!loading}
       destroyOnHidden
     >
       <Paragraph type="secondary">
-        将按 Reuters 全天行情，同步所选时间段内全部货币对。
+        按所选数据源同步时间段内全部已启用、已接入的货币对。两路行情分别记账，一路失败不影响另一路已有数据。
       </Paragraph>
       <Form
         form={form}
         layout="vertical"
         onFinish={(values) => {
-          onOk({
-            start: values.period[0].format('YYYY-MM-DD'),
-            end: values.period[1].format('YYYY-MM-DD'),
-          });
+          onOk(
+            {
+              start: values.period[0].format('YYYY-MM-DD'),
+              end: values.period[1].format('YYYY-MM-DD'),
+            },
+            values.sources,
+          );
         }}
       >
+        <Form.Item
+          label="数据源"
+          name="sources"
+          rules={[{ required: true, message: '请选择至少一个数据源' }]}
+        >
+          <Checkbox.Group
+            disabled={loading}
+            options={RATE_SOURCE_IDS.map((source) => ({
+              value: source,
+              label: RATE_SOURCE_LABEL[source],
+            }))}
+          />
+        </Form.Item>
         <Form.Item
           label="同步时间段"
           name="period"
@@ -93,9 +112,9 @@ export default function ManualSyncModal({
         </Form.Item>
       </Form>
       <Text type="secondary">
-        {tradingDays.length > 0
-          ? `将同步 ${formatSyncRange(start, end)}，共 ${tradingDays.length} 个交易日、${pairCount} 个货币对。`
-          : '所选时间段内没有交易日。'}
+        {tradingDays.length > 0 && sources.length > 0
+          ? `将同步 ${formatSyncRange(start, end)}，共 ${tradingDays.length} 个交易日、${pairCount} 个货币对、${sources.length} 个数据源。`
+          : '请选择有效时间段和数据源。'}
       </Text>
     </Modal>
   );

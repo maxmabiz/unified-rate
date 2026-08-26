@@ -3,12 +3,12 @@ import { App, Button, Card, Form, Popconfirm, Select, Space, Table, Typography }
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import PairFormModal, { type PairFormValues } from '@/components/PairFormModal';
-import { EnabledTag } from '@/components/StatusTags';
+import { EnabledTag, SourceTag } from '@/components/StatusTags';
 import { useRateStore } from '@/store/RateStore';
 import type { EnrichedPair } from '@/types';
 import { formatDateTime } from '@/utils/date';
 
-const { Title, Paragraph } = Typography;
+const { Title } = Typography;
 
 interface Filters {
   pair?: string;
@@ -44,9 +44,18 @@ export default function PairConfigPage() {
   };
 
   const handleSubmit = (values: PairFormValues) => {
+    const payload = {
+      currency1: values.currency1,
+      currency2: values.currency2,
+      reutersCode: values.reutersCode ?? '',
+      investingCode: values.investingCode ?? '',
+      reutersConnected: values.reutersConnected,
+      investingConnected: values.investingConnected,
+      quoteSource: values.quoteSource,
+    };
     const result = editingPair
-      ? updatePair(editingPair.id, { reutersCode: values.reutersCode })
-      : addPair(values);
+      ? updatePair(editingPair.id, payload)
+      : addPair(payload);
     if (!result.ok) {
       message.error(result.error || '保存失败');
       return;
@@ -69,7 +78,14 @@ export default function PairConfigPage() {
     { title: '货币对', dataIndex: 'pairLabel', width: 112 },
     { title: '基准货币', dataIndex: 'currency1', width: 100 },
     { title: '计价货币', dataIndex: 'currency2', width: 100 },
-    { title: 'Reuters代码', dataIndex: 'reutersCode', width: 140 },
+    { title: 'Reuters代码', dataIndex: ['feeds', 'reuters', 'code'], width: 120 },
+    { title: '英为财经代码', dataIndex: ['feeds', 'investing', 'code'], width: 128 },
+    {
+      title: '报价数据源',
+      dataIndex: 'quoteSource',
+      width: 112,
+      render: (source: EnrichedPair['quoteSource']) => <SourceTag source={source} />,
+    },
     {
       title: '状态',
       dataIndex: 'enabled',
@@ -115,9 +131,6 @@ export default function PairConfigPage() {
     <div className="page-wrap">
       <div className="page-header">
         <Title level={3}>货币对配置</Title>
-        <Paragraph className="page-desc">
-          维护纳入统一汇率管理的货币对、Reuters 代码和启用状态。缓冲因子仍在业务报价汇率中配置。
-        </Paragraph>
       </div>
 
       <Card className="page-card" variant="outlined">

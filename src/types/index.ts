@@ -1,5 +1,9 @@
 export type SyncStatus = '正常' | '同步中' | '失败';
 
+export type RateSource = 'reuters' | 'investing';
+
+export const RATE_SOURCE_IDS: RateSource[] = ['reuters', 'investing'];
+
 export interface DailyBar {
   date: string;
   open: string;
@@ -8,19 +12,24 @@ export interface DailyBar {
   close: string;
 }
 
+export interface SourceFeed {
+  code: string;
+  connected: boolean;
+  lastSyncAt: string;
+  syncStatus: SyncStatus;
+  latestMarketRate: string;
+  dataDate: string;
+  history: DailyBar[];
+}
+
 export interface FxPairState {
   id: string;
   currency1: string;
   currency2: string;
   pair: string;
   pairLabel: string;
-  reutersCode: string;
-  latestMarketRate: string;
-  previousMarketRate: string;
-  dataDate: string;
-  lastSyncAt: string;
-  syncStatus: SyncStatus;
-  history: DailyBar[];
+  quoteSource: RateSource;
+  feeds: Record<RateSource, SourceFeed>;
   volatilityBuffer: string;
   fee: string;
   enabled: boolean;
@@ -32,7 +41,6 @@ export interface ComputedQuotes {
   combinedBuffer: string;
   quoteCcy1: string;
   quoteCcy2: string;
-  hasVolatilityWarning: boolean;
 }
 
 export interface EnrichedPair extends FxPairState, ComputedQuotes {
@@ -44,12 +52,14 @@ export interface RateDailyRow {
   pairId: string;
   pair: string;
   pairLabel: string;
-  reutersCode: string;
+  source: RateSource;
+  sourceCode: string;
   dataDate: string;
   open: string;
   high: string;
   low: string;
   close: string;
+  changeRatio: string | null;
   latestMarketRate: string;
   lastSyncAt: string;
   syncStatus: SyncStatus;
@@ -67,11 +77,25 @@ export interface DateRange {
   end: string;
 }
 
-export interface AppSnapshot {
+export interface SourceSyncState {
   lastSyncAt: string;
   lastSyncStatus: SyncStatus;
   lastSyncRange?: DateRange;
+}
+
+export interface AppSnapshot {
+  sourceSync: Record<RateSource, SourceSyncState>;
   lastCalculatedAt: string;
   globalBuffer: BufferConfig;
   pairs: FxPairState[];
+}
+
+export interface PairConfigInput {
+  currency1: string;
+  currency2: string;
+  reutersCode: string;
+  investingCode: string;
+  reutersConnected: boolean;
+  investingConnected: boolean;
+  quoteSource: RateSource;
 }

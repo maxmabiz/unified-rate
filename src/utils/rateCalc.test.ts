@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import Decimal from 'decimal.js';
 import {
   averageFromHistory,
+  barHasVolatilityWarning,
   computeQuotes,
   dailyAverage,
   formatPercent,
+  formatSignedPercent,
   hasVolatilityWarning,
   quoteForCurrency1,
   quoteForCurrency2,
+  tradingDayChangeRatio,
 } from './rateCalc';
 import { PAIR_SEEDS, buildHistory } from '@/mock/seed';
 
@@ -57,53 +60,102 @@ describe('业务报价汇率计算', () => {
     expect(hasVolatilityWarning('9.0724', '8.9600')).toBe(true);
     expect(hasVolatilityWarning('6.7541', '6.7480')).toBe(false);
   });
+
+  it('预警对比上一交易日收盘，周末复制收盘不误报', () => {
+    const bar = (date: string, close: string) => ({
+      date,
+      open: close,
+      high: close,
+      low: close,
+      close,
+    });
+    const history = [
+      bar('2026-08-13', '9.0000'),
+      bar('2026-08-14', '9.1080'),
+      bar('2026-08-15', '9.1080'),
+      bar('2026-08-16', '9.1080'),
+      bar('2026-08-17', '9.1100'),
+    ];
+    expect(barHasVolatilityWarning(history, '2026-08-14', '9.1080')).toBe(true);
+    expect(barHasVolatilityWarning(history, '2026-08-15', '9.1080')).toBe(false);
+    expect(barHasVolatilityWarning(history, '2026-08-17', '9.1100')).toBe(false);
+    expect(formatSignedPercent(tradingDayChangeRatio(history, '2026-08-14', '9.1080'))).toBe('+1.20%');
+    expect(formatSignedPercent(tradingDayChangeRatio(history, '2026-08-15', '9.1080'))).toBe('0.00%');
+  });
+
+  it('涨跌幅展示为带符号百分比', () => {
+    expect(formatSignedPercent('0.012')).toBe('+1.20%');
+    expect(formatSignedPercent('-0.0035')).toBe('-0.35%');
+    expect(formatSignedPercent('0')).toBe('0.00%');
+    expect(formatSignedPercent(null)).toBe('-');
+  });
 });
 
 describe('汇率数据最近10天模拟', () => {
-  it('列表展开为 8 个货币对 × 10 个自然日，且包含 2026-08-18', async () => {
+  it('列表展开为 8 个货币对 × 2 个数据源 × 10 个自然日，且包含 2026-08-18', async () => {
     const { createInitialSnapshot, tradingBars } = await import('@/mock/seed');
     const { flattenDailyRows } = await import('@/store/RateStore');
+    const { quoteFeed, quoteHistory } = await import('@/utils/source');
 
     const snapshot = createInitialSnapshot();
     const pairs = snapshot.pairs.map((pair) => {
-      const quotes = computeQuotes(tradingBars(pair.history), {
+      const feed = quoteFeed(pair);
+      const quotes = computeQuotes(tradingBars(quoteHistory(pair)), {
         volatilityBuffer: pair.volatilityBuffer,
         fee: pair.fee,
       });
       return {
         ...pair,
         ...quotes,
-        updateDate: pair.dataDate,
-        hasVolatilityWarning: hasVolatilityWarning(pair.latestMarketRate, pair.previousMarketRate),
+        updateDate: feed.dataDate,
       };
     });
 
     const rows = flattenDailyRows(pairs);
     const dates = [...new Set(rows.map((row) => row.dataDate))].sort();
 
-    expect(rows).toHaveLength(80);
+    expect(rows).toHaveLength(160);
     expect(dates[0]).toBe('2026-08-09');
     expect(dates[dates.length - 1]).toBe('2026-08-18');
-    expect(rows.filter((row) => row.dataDate === '2026-08-18')).toHaveLength(8);
+    expect(rows.filter((row) => row.dataDate === '2026-08-18')).toHaveLength(16);
     expect(rows[0].dataDate).toBe('2026-08-18');
 
-    const usdToday = rows.find((row) => row.pair === 'USDCNY' && row.dataDate === '2026-08-18');
+    const usdToday = rows.find((row) => row.pair === 'USDCNY' && row.dataDate === '2026-08-18' && row.source === 'reuters');
     expect(usdToday).toMatchObject({
       open: '6.7484',
       high: '6.7511',
       low: '6.7463',
       close: '6.7491',
+      sourceCode: 'USDCNY=',
     });
+
+    const usdInvesting = rows.find((row) => row.pair === 'USDCNY' && row.dataDate === '2026-08-18' && row.source === 'investing');
+    expect(usdInvesting?.sourceCode).toBe('usd-cny');
+    expect(usdInvesting?.close).not.toBe(usdToday?.close);
+
+    const gbpJump = rows.find((row) => row.pair === 'GBPCNY' && row.dataDate === '2026-08-18' && row.source === 'reuters');
+    expect(gbpJump?.hasVolatilityWarning).toBe(true);
+    expect(formatSignedPercent(gbpJump?.changeRatio)).toBe('+1.20%');
+    const usdQuiet = rows.find((row) => row.pair === 'USDCNY' && row.dataDate === '2026-08-18' && row.source === 'reuters');
+    expect(usdQuiet?.hasVolatilityWarning).toBe(false);
+
+    const { latestTradingDayWarnings, formatLatestVolatilityAlert } = await import('@/utils/volatilityAlert');
+    const latestWarnings = latestTradingDayWarnings(rows);
+    expect(latestWarnings.every((item) => item.dataDate === '2026-08-18')).toBe(true);
+    expect(formatLatestVolatilityAlert(latestWarnings)).toContain('GBP/CNY Reuters +1.20%');
+    expect(formatLatestVolatilityAlert(latestWarnings)).toContain('GBP/CNY 英为财经');
   });
 
-  it('新增货币对会生成模拟行情且默认启用', async () => {
+  it('新增货币对会为两路数据源生成模拟行情且默认启用', async () => {
     const { createConfiguredPair } = await import('@/mock/seed');
     const pair = createConfiguredPair(
-      { currency1: 'USD', currency2: 'JPY', reutersCode: 'USDJPY=' },
+      { currency1: 'USD', currency2: 'JPY', reutersCode: 'USDJPY=', investingCode: 'usd-jpy' },
       { volatilityBuffer: '0.04', fee: '0.01' },
     );
     expect(pair.enabled).toBe(true);
     expect(pair.pairLabel).toBe('USD/JPY');
-    expect(pair.history.length).toBeGreaterThanOrEqual(10);
+    expect(pair.quoteSource).toBe('reuters');
+    expect(pair.feeds.reuters.history.length).toBeGreaterThanOrEqual(10);
+    expect(pair.feeds.investing.history.length).toBeGreaterThanOrEqual(10);
   });
 });

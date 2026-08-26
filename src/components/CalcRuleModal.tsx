@@ -3,6 +3,8 @@ import type { ColumnsType } from 'antd/es/table';
 import type { DailyBar, EnrichedPair } from '@/types';
 import { formatPercent, formatRate } from '@/utils/rateCalc';
 import { tradingBars } from '@/mock/seed';
+import { RATE_SOURCE_LABEL } from '@/constants';
+import { quoteHistory } from '@/utils/source';
 
 const { Paragraph } = Typography;
 
@@ -15,7 +17,7 @@ interface CalcRuleModalProps {
 export default function CalcRuleModal({ pair, open, onClose }: CalcRuleModalProps) {
   if (!pair) return null;
 
-  const history = tradingBars(pair.history);
+  const history = tradingBars(quoteHistory(pair));
 
   const columns: ColumnsType<DailyBar> = [
     { title: '交易日期', dataIndex: 'date', width: 120 },
@@ -55,7 +57,7 @@ export default function CalcRuleModal({ pair, open, onClose }: CalcRuleModalProp
       destroyOnHidden
     >
       <Paragraph type="secondary">
-        基础数据取最近 7 个交易日（{history[0]?.date} 至 {history[history.length - 1]?.date}）。
+        基础数据取自{RATE_SOURCE_LABEL[pair.quoteSource]}最近 7 个交易日（{history[0]?.date} 至 {history[history.length - 1]?.date}）。
       </Paragraph>
       <Table
         rowKey="date"

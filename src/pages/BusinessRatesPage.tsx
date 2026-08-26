@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react';
-import { Alert, App, Button, Card, Form, Select, Space, Table, Tooltip, Typography } from 'antd';
+import { App, Button, Card, Form, Select, Space, Table, Tooltip, Typography } from 'antd';
 import { CalculatorOutlined, SearchOutlined, SettingOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import BufferConfigModal from '@/components/BufferConfigModal';
 import CalcRuleModal from '@/components/CalcRuleModal';
-import { EffectiveTag } from '@/components/StatusTags';
+import { EffectiveTag, SourceTag } from '@/components/StatusTags';
 import { useRateStore } from '@/store/RateStore';
 import type { BufferConfig, EnrichedPair } from '@/types';
 import { formatDateTime } from '@/utils/date';
-import { VOLATILITY_WARNING_TEXT, combinedBufferOf, formatPercent, formatRate } from '@/utils/rateCalc';
+import { combinedBufferOf, formatPercent, formatRate } from '@/utils/rateCalc';
 
 const { Title, Paragraph } = Typography;
 
@@ -36,7 +36,6 @@ export default function BusinessRatesPage() {
   const [rulePair, setRulePair] = useState<EnrichedPair | null>(null);
 
   const quotePairs = useMemo(() => pairs.filter((item) => item.enabled), [pairs]);
-  const warningCount = quotePairs.filter((item) => item.hasVolatilityWarning).length;
   const currencies1 = [...new Set(quotePairs.map((item) => item.currency1))];
   const currencies2 = [...new Set(quotePairs.map((item) => item.currency2))];
 
@@ -68,6 +67,12 @@ export default function BusinessRatesPage() {
       title: '货币对',
       dataIndex: 'pairLabel',
       width: 112,
+    },
+    {
+      title: '报价数据源',
+      dataIndex: 'quoteSource',
+      width: 112,
+      render: (source: EnrichedPair['quoteSource']) => <SourceTag source={source} />,
     },
     {
       title: '7日均价',
@@ -116,14 +121,8 @@ export default function BusinessRatesPage() {
     {
       title: '状态',
       key: 'status',
-      width: 128,
-      render: (_, record) => (
-        <Tooltip title={record.hasVolatilityWarning ? VOLATILITY_WARNING_TEXT : undefined}>
-          <span>
-            <EffectiveTag warning={record.hasVolatilityWarning} />
-          </span>
-        </Tooltip>
-      ),
+      width: 80,
+      render: () => <EffectiveTag />,
     },
     {
       title: '操作',
@@ -147,18 +146,9 @@ export default function BusinessRatesPage() {
       <div className="page-header">
         <Title level={3}>业务报价汇率</Title>
         <Paragraph className="page-desc">
-          按近 7 个交易日均价和综合缓冲因子，生成两个结算方向的可用报价。
+          按指定数据源近 7 个交易日均价和综合缓冲因子，生成两个结算方向的可用报价。
         </Paragraph>
       </div>
-
-      {warningCount > 0 ? (
-        <Alert
-          className="page-alert"
-          type="warning"
-          showIcon
-          message={VOLATILITY_WARNING_TEXT}
-        />
-      ) : null}
 
       <Card className="page-card" variant="outlined">
         <div className="meta-strip">
@@ -247,7 +237,6 @@ export default function BusinessRatesPage() {
             showSizeChanger: false,
             size: 'small',
           }}
-          rowClassName={(record) => (record.hasVolatilityWarning ? 'warning-row' : '')}
         />
       </Card>
 

@@ -1,9 +1,11 @@
 export const SYSTEM_NAME = '统一汇率';
-export const APP_VERSION = '0.2.0';
+export const APP_VERSION = '0.3.0';
 export const APP_VERSION_DATE = '2026-08-26';
 
-export const DATA_SOURCE = 'Reuters';
-export const UPDATE_FREQUENCY = '每天 01:00、03:00、06:00';
+export const RATE_SOURCE_LABEL = {
+  reuters: 'Reuters',
+  investing: '英为财经',
+} as const;
 
 export const DEFAULT_VOLATILITY_BUFFER = '0.04';
 export const DEFAULT_FEE = '0.01';
@@ -23,4 +25,8 @@ export function suggestReutersCode(currency1: string, currency2: string): string
   if (currency1 === 'EUR' && currency2 === 'USD') return 'EUR=';
   if (currency1 === 'GBP' && currency2 === 'USD') return 'GBP=';
   return `${currency1}${currency2}=`;
+}
+
+export function suggestInvestingCode(currency1: string, currency2: string): string {
+  return `${currency1}-${currency2}`.toLowerCase();
 }

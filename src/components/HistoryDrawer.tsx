@@ -1,18 +1,20 @@
 import { Drawer, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import type { DailyBar } from '@/types';
+import type { DailyBar, RateSource } from '@/types';
+import { RATE_SOURCE_LABEL } from '@/constants';
 import { averageFromHistory, dailyAverage, formatRate } from '@/utils/rateCalc';
 
 const { Text, Paragraph } = Typography;
 
 interface HistoryDrawerProps {
   pairLabel?: string;
+  source?: RateSource;
   history: DailyBar[];
   open: boolean;
   onClose: () => void;
 }
 
-export default function HistoryDrawer({ pairLabel, history, open, onClose }: HistoryDrawerProps) {
+export default function HistoryDrawer({ pairLabel, source, history, open, onClose }: HistoryDrawerProps) {
   const columns: ColumnsType<DailyBar> = [
     {
       title: '交易日期',
@@ -57,7 +59,11 @@ export default function HistoryDrawer({ pairLabel, history, open, onClose }: His
 
   return (
     <Drawer
-      title={pairLabel ? `${pairLabel} 近7日数据` : '近7日数据'}
+      title={
+        pairLabel
+          ? `${pairLabel}${source ? ` · ${RATE_SOURCE_LABEL[source]}` : ''} 近7日数据`
+          : '近7日数据'
+      }
       width={760}
       open={open}
       onClose={onClose}

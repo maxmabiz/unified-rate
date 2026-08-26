@@ -1,10 +1,10 @@
 import Decimal from 'decimal.js';
 import type { DailyBar, ComputedQuotes, BufferConfig } from '@/types';
+import { isTradingDay } from '@/utils/date';
 
 Decimal.set({ precision: 28 });
 
 export const VOLATILITY_THRESHOLD = new Decimal('0.01');
-export const VOLATILITY_WARNING_TEXT = '市场汇率波动超过1%，请关注业务报价是否需要调整。';
 
 export function dailyAverage(high: string | Decimal, low: string | Decimal): Decimal {
   return new Decimal(high).plus(low).div(2);
@@ -52,18 +52,51 @@ export function computeQuotes(history: DailyBar[], config: BufferConfig): Comput
     combinedBuffer: combined.toFixed(4),
     quoteCcy1: quoteForCurrency1(avg7, combined).toFixed(1),
     quoteCcy2: quoteForCurrency2(avg7, combined).toFixed(1),
-    hasVolatilityWarning: false,
   };
 }
 
 export function fluctuationRatio(current: string, previous: string): Decimal {
+  return signedFluctuationRatio(current, previous).abs();
+}
+
+export function signedFluctuationRatio(current: string, previous: string): Decimal {
   const prev = new Decimal(previous);
   if (prev.isZero()) return new Decimal(0);
-  return new Decimal(current).minus(prev).abs().div(prev);
+  return new Decimal(current).minus(prev).div(prev);
 }
 
 export function hasVolatilityWarning(current: string, previous: string): boolean {
   return fluctuationRatio(current, previous).gte(VOLATILITY_THRESHOLD);
+}
+
+/** 严格早于 date 的最近一个交易日收盘；没有则返回 undefined */
+export function previousTradingClose(history: DailyBar[], date: string): string | undefined {
+  let previous: string | undefined;
+  const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
+  for (const bar of sorted) {
+    if (bar.date >= date) break;
+    if (isTradingDay(bar.date)) previous = bar.close;
+  }
+  return previous;
+}
+
+export function tradingDayChangeRatio(history: DailyBar[], date: string, close: string): Decimal | null {
+  const previous = previousTradingClose(history, date);
+  if (!previous) return null;
+  return signedFluctuationRatio(close, previous);
+}
+
+export function barHasVolatilityWarning(history: DailyBar[], date: string, close: string): boolean {
+  const ratio = tradingDayChangeRatio(history, date, close);
+  if (!ratio) return false;
+  return ratio.abs().gte(VOLATILITY_THRESHOLD);
+}
+
+export function formatSignedPercent(ratio: Decimal | string | null | undefined): string {
+  if (ratio === null || ratio === undefined || ratio === '') return '-';
+  const pct = new Decimal(ratio).mul(100).toDecimalPlaces(2);
+  if (pct.isZero()) return '0.00%';
+  return `${pct.isNegative() ? '-' : '+'}${pct.abs().toFixed(2)}%`;
 }
 
 export function formatRate(value: string | Decimal, digits = 4): string {

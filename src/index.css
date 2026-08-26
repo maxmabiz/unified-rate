@@ -137,6 +137,11 @@ body {
   margin-bottom: 12px;
 }
 
+.page-alert .ant-alert-title,
+.page-alert .ant-alert-message {
+  white-space: normal;
+}
+
 .page-card,
 .page-card.ant-card {
   width: 100%;
@@ -243,6 +248,30 @@ body {
   white-space: nowrap;
 }
 
+.rate-data-table .ant-table-container,
+.rate-data-table .ant-table-content {
+  overflow-x: auto;
+}
+
+.rate-data-table.compact-table table {
+  width: 100% !important;
+  min-width: max-content !important;
+  table-layout: auto !important;
+}
+
+.rate-data-table.compact-table .ant-table-thead > tr > th,
+.rate-data-table.compact-table .ant-table-tbody > tr > td {
+  width: 1%;
+  white-space: nowrap;
+  padding-inline: 16px !important;
+}
+
+.rate-data-table.compact-table .ant-table-thead > tr > th:last-child,
+.rate-data-table.compact-table .ant-table-tbody > tr > td:last-child {
+  width: auto;
+  padding-inline-end: 28px !important;
+}
+
 .compact-table .ant-table-tbody > tr:hover > td {
   background: #f5f9ff;
 }
@@ -260,6 +289,18 @@ body {
 .quote-cell {
   font-weight: 600;
   color: #1677ff;
+}
+
+.change-up {
+  color: #cf1322;
+}
+
+.change-down {
+  color: #389e0d;
+}
+
+.change-flat {
+  color: rgba(0, 0, 0, 0.45);
 }
 
 .warning-row td {

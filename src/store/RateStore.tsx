@@ -1,83 +1,112 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import dayjs from 'dayjs';
 import { HISTORY_CALENDAR_DAYS, HISTORY_SEED_DAYS } from '@/constants';
-import type { AppSnapshot, BufferConfig, DateRange, EnrichedPair, FxPairState, RateDailyRow } from '@/types';
-import { createInitialSnapshot, createConfiguredPair, mockBarForDate, tradingBars } from '@/mock/seed';
+import type {
+  AppSnapshot,
+  BufferConfig,
+  DateRange,
+  EnrichedPair,
+  FxPairState,
+  PairConfigInput,
+  RateDailyRow,
+  RateSource,
+  SourceFeed,
+} from '@/types';
+import { RATE_SOURCE_IDS } from '@/types';
+import {
+  createInitialSnapshot,
+  createConfiguredPair,
+  emptyFeed,
+  feedFromHistory,
+  mockBarForDate,
+  shiftBarsForInvesting,
+  tradingBars,
+  buildPairMarketHistory,
+} from '@/mock/seed';
 import { calendarDaysInRange, lastNCalendarDays, nowText } from '@/utils/date';
 import {
   averageFromHistory,
+  barHasVolatilityWarning,
   computeQuotes,
-  hasVolatilityWarning,
+  tradingDayChangeRatio,
 } from '@/utils/rateCalc';
+import { quoteFeed } from '@/utils/source';
 
 interface RateStoreValue {
-  lastSyncAt: string;
-  lastSyncStatus: AppSnapshot['lastSyncStatus'];
-  lastSyncRange?: DateRange;
+  sourceSync: AppSnapshot['sourceSync'];
   lastCalculatedAt: string;
   globalBuffer: BufferConfig;
   pairs: EnrichedPair[];
   dailyRows: RateDailyRow[];
   syncing: boolean;
   calculating: boolean;
-  syncAll: (range: DateRange) => Promise<{ ok: boolean; error?: string }>;
+  syncAll: (range: DateRange, sources: RateSource[]) => Promise<{ ok: boolean; error?: string }>;
   recalculate: () => void;
   saveGlobalBuffer: (config: BufferConfig) => void;
   savePairBuffer: (id: string, config: BufferConfig) => void;
-  addPair: (input: { currency1: string; currency2: string; reutersCode: string }) => { ok: boolean; error?: string };
-  updatePair: (id: string, input: { reutersCode: string }) => { ok: boolean; error?: string };
+  addPair: (input: PairConfigInput) => { ok: boolean; error?: string };
+  updatePair: (id: string, input: Omit<PairConfigInput, 'currency1' | 'currency2'>) => { ok: boolean; error?: string };
   setPairEnabled: (id: string, enabled: boolean) => { ok: boolean; error?: string };
 }
 
 const RateStoreContext = createContext<RateStoreValue | null>(null);
 
 function enrich(pair: FxPairState): EnrichedPair {
-  const quotes = computeQuotes(tradingBars(pair.history), {
+  const feed = quoteFeed(pair);
+  const quotes = computeQuotes(tradingBars(feed.history), {
     volatilityBuffer: pair.volatilityBuffer,
     fee: pair.fee,
   });
   return {
     ...pair,
     ...quotes,
-    updateDate: pair.dataDate,
-    hasVolatilityWarning: hasVolatilityWarning(pair.latestMarketRate, pair.previousMarketRate),
+    updateDate: feed.dataDate,
   };
 }
 
-function historyEndingAt(history: FxPairState['history'], dataDate: string) {
+function historyEndingAt(history: SourceFeed['history'], dataDate: string) {
   return tradingBars(history.filter((bar) => bar.date <= dataDate));
 }
 
 export function flattenDailyRows(pairs: EnrichedPair[]): RateDailyRow[] {
   const rows: RateDailyRow[] = [];
   for (const pair of pairs) {
-    const sorted = [...pair.history].sort((a, b) => a.date.localeCompare(b.date));
-    const displayStart = lastNCalendarDays(pair.dataDate, HISTORY_CALENDAR_DAYS)[0];
-    const visible = sorted.filter((bar) => bar.date >= displayStart);
-    visible.forEach((bar) => {
-      const barIndex = sorted.findIndex((item) => item.date === bar.date);
-      const prevClose = barIndex > 0 ? sorted[barIndex - 1].close : pair.previousMarketRate;
-      const warnAgainst = bar.date === pair.dataDate ? pair.previousMarketRate : prevClose;
-      rows.push({
-        id: `${pair.id}-${bar.date}`,
-        pairId: pair.id,
-        pair: pair.pair,
-        pairLabel: pair.pairLabel,
-        reutersCode: pair.reutersCode,
-        dataDate: bar.date,
-        open: bar.open,
-        high: bar.high,
-        low: bar.low,
-        close: bar.close,
-        latestMarketRate: bar.close,
-        lastSyncAt: pair.lastSyncAt,
-        syncStatus: pair.syncStatus,
-        hasVolatilityWarning: hasVolatilityWarning(bar.close, warnAgainst),
-        history: historyEndingAt(sorted, bar.date),
+    for (const source of RATE_SOURCE_IDS) {
+      const feed = pair.feeds[source];
+      if (!feed.history.length) continue;
+      const sorted = [...feed.history].sort((a, b) => a.date.localeCompare(b.date));
+      const displayStart = lastNCalendarDays(feed.dataDate || sorted[sorted.length - 1].date, HISTORY_CALENDAR_DAYS)[0];
+      const visible = sorted.filter((bar) => bar.date >= displayStart);
+      visible.forEach((bar) => {
+        const change = tradingDayChangeRatio(sorted, bar.date, bar.close);
+        rows.push({
+          id: `${pair.id}-${source}-${bar.date}`,
+          pairId: pair.id,
+          pair: pair.pair,
+          pairLabel: pair.pairLabel,
+          source,
+          sourceCode: feed.code,
+          dataDate: bar.date,
+          open: bar.open,
+          high: bar.high,
+          low: bar.low,
+          close: bar.close,
+          changeRatio: change ? change.toFixed(8) : null,
+          latestMarketRate: bar.close,
+          lastSyncAt: feed.lastSyncAt,
+          syncStatus: feed.syncStatus,
+          hasVolatilityWarning: barHasVolatilityWarning(sorted, bar.date, bar.close),
+          history: historyEndingAt(sorted, bar.date),
+        });
       });
-    });
+    }
   }
-  return rows.sort((a, b) => b.dataDate.localeCompare(a.dataDate) || a.pair.localeCompare(b.pair));
+  return rows.sort(
+    (a, b) =>
+      b.dataDate.localeCompare(a.dataDate) ||
+      a.pair.localeCompare(b.pair) ||
+      a.source.localeCompare(b.source),
+  );
 }
 
 function wait(ms: number) {
@@ -86,19 +115,17 @@ function wait(ms: number) {
   });
 }
 
-function applySuccessfulSync(pair: FxPairState, syncedAt: string, rangeDays: string[]): FxPairState {
-  const baseAvg = averageFromHistory(tradingBars(pair.history));
-  const byDate = new Map(pair.history.map((bar) => [bar.date, bar]));
+function applySuccessfulSync(feed: SourceFeed, syncedAt: string, rangeDays: string[]): SourceFeed {
+  const baseAvg = averageFromHistory(tradingBars(feed.history));
+  const byDate = new Map(feed.history.map((bar) => [bar.date, bar]));
   for (const date of rangeDays) {
     byDate.set(date, mockBarForDate(date, baseAvg));
   }
   const history = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-HISTORY_SEED_DAYS);
   const latestBar = history[history.length - 1];
-  const previousBar = history[history.length - 2];
   return {
-    ...pair,
+    ...feed,
     history,
-    previousMarketRate: previousBar?.close ?? pair.latestMarketRate,
     latestMarketRate: latestBar.close,
     dataDate: latestBar.date,
     lastSyncAt: syncedAt,
@@ -106,7 +133,63 @@ function applySuccessfulSync(pair: FxPairState, syncedAt: string, rangeDays: str
   };
 }
 
-let fullSyncCount = 0;
+function validatePairConfig(input: {
+  reutersCode: string;
+  investingCode: string;
+  reutersConnected: boolean;
+  investingConnected: boolean;
+  quoteSource: RateSource;
+}): { ok: true } | { ok: false; error: string } {
+  if (!input.reutersConnected && !input.investingConnected) {
+    return { ok: false, error: '请至少接入一个数据源' };
+  }
+  if (input.reutersConnected && !input.reutersCode.trim()) {
+    return { ok: false, error: '请填写 Reuters 代码' };
+  }
+  if (input.investingConnected && !input.investingCode.trim()) {
+    return { ok: false, error: '请填写英为财经代码' };
+  }
+  if (input.quoteSource === 'reuters' && !input.reutersConnected) {
+    return { ok: false, error: '报价数据源必须是已接入的数据源' };
+  }
+  if (input.quoteSource === 'investing' && !input.investingConnected) {
+    return { ok: false, error: '报价数据源必须是已接入的数据源' };
+  }
+  return { ok: true };
+}
+
+function hydrateFeed(
+  current: SourceFeed | undefined,
+  code: string,
+  connected: boolean,
+  source: RateSource,
+  currency1: string,
+  currency2: string,
+): SourceFeed {
+  const trimmed = code.trim();
+  if (!connected) {
+    return {
+      ...(current ?? emptyFeed(trimmed)),
+      code: trimmed,
+      connected: false,
+    };
+  }
+  if (current?.history.length) {
+    return {
+      ...current,
+      code: trimmed,
+      connected: true,
+    };
+  }
+  const market = buildPairMarketHistory(currency1, currency2);
+  const history = source === 'investing' ? shiftBarsForInvesting(market) : market;
+  return feedFromHistory(trimmed, history, true);
+}
+
+const syncFailCount: Record<RateSource, number> = {
+  reuters: 0,
+  investing: 0,
+};
 
 export function RateProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(() => createInitialSnapshot());
@@ -116,12 +199,24 @@ export function RateProvider({ children }: { children: ReactNode }) {
   const pairs = useMemo(() => snapshot.pairs.map(enrich), [snapshot.pairs]);
   const dailyRows = useMemo(() => flattenDailyRows(pairs), [pairs]);
 
-  const syncAll = useCallback(async (range: DateRange) => {
+  const syncAll = useCallback(async (range: DateRange, sources: RateSource[]) => {
     if (syncing) return { ok: false, error: '正在同步中' };
 
-    const enabledCount = snapshot.pairs.filter((pair) => pair.enabled).length;
-    if (enabledCount === 0) {
+    const selected = sources.filter((source) => RATE_SOURCE_IDS.includes(source));
+    if (selected.length === 0) {
+      return { ok: false, error: '请选择至少一个数据源' };
+    }
+
+    const enabledPairs = snapshot.pairs.filter((pair) => pair.enabled);
+    if (enabledPairs.length === 0) {
       return { ok: false, error: '请先启用至少一个货币对' };
+    }
+
+    const work = selected.filter((source) =>
+      enabledPairs.some((pair) => pair.feeds[source].connected),
+    );
+    if (work.length === 0) {
+      return { ok: false, error: '所选数据源没有已接入的启用货币对' };
     }
 
     const rangeDays = calendarDaysInRange(range.start, range.end);
@@ -132,46 +227,76 @@ export function RateProvider({ children }: { children: ReactNode }) {
     setSyncing(true);
     setSnapshot((prev) => ({
       ...prev,
-      lastSyncStatus: '同步中',
-      lastSyncRange: range,
-      pairs: prev.pairs.map((pair) =>
-        pair.enabled ? { ...pair, syncStatus: '同步中' } : pair,
-      ),
+      sourceSync: {
+        ...prev.sourceSync,
+        ...Object.fromEntries(
+          work.map((source) => [
+            source,
+            { ...prev.sourceSync[source], lastSyncStatus: '同步中', lastSyncRange: range },
+          ]),
+        ),
+      },
+      pairs: prev.pairs.map((pair) => ({
+        ...pair,
+        feeds: {
+          reuters: pair.enabled && work.includes('reuters') && pair.feeds.reuters.connected
+            ? { ...pair.feeds.reuters, syncStatus: '同步中' }
+            : pair.feeds.reuters,
+          investing: pair.enabled && work.includes('investing') && pair.feeds.investing.connected
+            ? { ...pair.feeds.investing, syncStatus: '同步中' }
+            : pair.feeds.investing,
+        },
+      })),
     }));
     await wait(1400);
 
-    fullSyncCount += 1;
-    const shouldFail = fullSyncCount % 3 === 0;
     const syncedAt = nowText();
+    const outcome: Record<RateSource, '正常' | '失败'> = {
+      reuters: '正常',
+      investing: '正常',
+    };
 
-    if (shouldFail) {
-      setSnapshot((prev) => ({
-        ...prev,
-        lastSyncAt: syncedAt,
-        lastSyncStatus: '失败',
-        lastSyncRange: range,
-        pairs: prev.pairs.map((pair) =>
-          pair.enabled
-            ? { ...pair, lastSyncAt: syncedAt, syncStatus: '失败' }
-            : pair,
-        ),
-      }));
-      setSyncing(false);
-      return { ok: false };
+    for (const source of work) {
+      syncFailCount[source] += 1;
+      outcome[source] = syncFailCount[source] % 3 === 0 ? '失败' : '正常';
     }
 
-    const calculatedAt = nowText(dayjs().add(2, 'second'));
+    const anyQuoteUpdated = snapshot.pairs.some(
+      (pair) => pair.enabled && work.includes(pair.quoteSource) && pair.feeds[pair.quoteSource].connected && outcome[pair.quoteSource] === '正常',
+    );
+
     setSnapshot((prev) => ({
       ...prev,
-      lastSyncAt: syncedAt,
-      lastSyncStatus: '正常',
-      lastSyncRange: range,
-      lastCalculatedAt: calculatedAt,
-      pairs: prev.pairs.map((pair) =>
-        pair.enabled ? applySuccessfulSync(pair, syncedAt, rangeDays) : pair,
-      ),
+      lastCalculatedAt: anyQuoteUpdated ? nowText(dayjs().add(2, 'second')) : prev.lastCalculatedAt,
+      sourceSync: {
+        ...prev.sourceSync,
+        ...Object.fromEntries(
+          work.map((source) => [
+            source,
+            {
+              lastSyncAt: syncedAt,
+              lastSyncStatus: outcome[source],
+              lastSyncRange: range,
+            },
+          ]),
+        ),
+      },
+      pairs: prev.pairs.map((pair) => ({
+        ...pair,
+        feeds: {
+          reuters: patchFeedAfterSync(pair, 'reuters', work, outcome, syncedAt, rangeDays),
+          investing: patchFeedAfterSync(pair, 'investing', work, outcome, syncedAt, rangeDays),
+        },
+      })),
     }));
     setSyncing(false);
+
+    if (work.every((source) => outcome[source] === '失败')) {
+      return { ok: false };
+    }
+    if (work.some((source) => outcome[source] === '失败')) {
+      return { ok: false, error: '部分数据源同步失败' };
+    }
     return { ok: true };
   }, [syncing, snapshot.pairs]);
 
@@ -211,19 +336,27 @@ export function RateProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
-  const addPair = useCallback((input: { currency1: string; currency2: string; reutersCode: string }) => {
+  const addPair = useCallback((input: PairConfigInput) => {
     const currency1 = input.currency1.trim().toUpperCase();
     const currency2 = input.currency2.trim().toUpperCase();
-    const reutersCode = input.reutersCode.trim();
     if (!currency1 || !currency2) return { ok: false, error: '请选择基准货币和计价货币' };
     if (currency1 === currency2) return { ok: false, error: '基准货币和计价货币不能相同' };
-    if (!reutersCode) return { ok: false, error: '请填写 Reuters 代码' };
+
+    const checked = validatePairConfig(input);
+    if (!checked.ok) return checked;
 
     const id = `${currency1}${currency2}`;
     const exists = snapshot.pairs.some((pair) => pair.id === id);
     if (exists) return { ok: false, error: '该货币对已存在，可直接启用或编辑' };
-    const ricTaken = snapshot.pairs.some((pair) => pair.reutersCode === reutersCode);
-    if (ricTaken) return { ok: false, error: 'Reuters 代码已被其他货币对使用' };
+
+    const reutersCode = input.reutersCode.trim();
+    const investingCode = input.investingCode.trim();
+    if (input.reutersConnected && snapshot.pairs.some((pair) => pair.feeds.reuters.code === reutersCode)) {
+      return { ok: false, error: 'Reuters 代码已被其他货币对使用' };
+    }
+    if (input.investingConnected && snapshot.pairs.some((pair) => pair.feeds.investing.code === investingCode)) {
+      return { ok: false, error: '英为财经代码已被其他货币对使用' };
+    }
 
     setSnapshot((prev) => ({
       ...prev,
@@ -231,7 +364,15 @@ export function RateProvider({ children }: { children: ReactNode }) {
       pairs: [
         ...prev.pairs,
         createConfiguredPair(
-          { currency1, currency2, reutersCode },
+          {
+            currency1,
+            currency2,
+            reutersCode,
+            investingCode,
+            reutersConnected: input.reutersConnected,
+            investingConnected: input.investingConnected,
+            quoteSource: input.quoteSource,
+          },
           prev.globalBuffer,
           nowText(),
         ),
@@ -240,17 +381,55 @@ export function RateProvider({ children }: { children: ReactNode }) {
     return { ok: true };
   }, [snapshot.pairs]);
 
-  const updatePair = useCallback((id: string, input: { reutersCode: string }) => {
+  const updatePair = useCallback((id: string, input: Omit<PairConfigInput, 'currency1' | 'currency2'>) => {
+    const target = snapshot.pairs.find((pair) => pair.id === id);
+    if (!target) return { ok: false, error: '货币对不存在' };
+
+    const checked = validatePairConfig(input);
+    if (!checked.ok) return checked;
+
     const reutersCode = input.reutersCode.trim();
-    if (!reutersCode) return { ok: false, error: '请填写 Reuters 代码' };
-    const ricTaken = snapshot.pairs.some((pair) => pair.id !== id && pair.reutersCode === reutersCode);
-    if (ricTaken) return { ok: false, error: 'Reuters 代码已被其他货币对使用' };
+    const investingCode = input.investingCode.trim();
+    if (
+      input.reutersConnected &&
+      snapshot.pairs.some((pair) => pair.id !== id && pair.feeds.reuters.code === reutersCode)
+    ) {
+      return { ok: false, error: 'Reuters 代码已被其他货币对使用' };
+    }
+    if (
+      input.investingConnected &&
+      snapshot.pairs.some((pair) => pair.id !== id && pair.feeds.investing.code === investingCode)
+    ) {
+      return { ok: false, error: '英为财经代码已被其他货币对使用' };
+    }
 
     setSnapshot((prev) => ({
       ...prev,
       pairs: prev.pairs.map((pair) =>
         pair.id === id
-          ? { ...pair, reutersCode, configUpdatedAt: nowText() }
+          ? {
+              ...pair,
+              quoteSource: input.quoteSource,
+              configUpdatedAt: nowText(),
+              feeds: {
+                reuters: hydrateFeed(
+                  pair.feeds.reuters,
+                  reutersCode,
+                  input.reutersConnected,
+                  'reuters',
+                  pair.currency1,
+                  pair.currency2,
+                ),
+                investing: hydrateFeed(
+                  pair.feeds.investing,
+                  investingCode,
+                  input.investingConnected,
+                  'investing',
+                  pair.currency1,
+                  pair.currency2,
+                ),
+              },
+            }
           : pair,
       ),
     }));
@@ -275,9 +454,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<RateStoreValue>(
     () => ({
-      lastSyncAt: snapshot.lastSyncAt,
-      lastSyncStatus: snapshot.lastSyncStatus,
-      lastSyncRange: snapshot.lastSyncRange,
+      sourceSync: snapshot.sourceSync,
       lastCalculatedAt: snapshot.lastCalculatedAt,
       globalBuffer: snapshot.globalBuffer,
       pairs,
@@ -293,9 +470,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
       setPairEnabled,
     }),
     [
-      snapshot.lastSyncAt,
-      snapshot.lastSyncStatus,
-      snapshot.lastSyncRange,
+      snapshot.sourceSync,
       snapshot.lastCalculatedAt,
       snapshot.globalBuffer,
       pairs,
@@ -313,6 +488,22 @@ export function RateProvider({ children }: { children: ReactNode }) {
   );
 
   return <RateStoreContext.Provider value={value}>{children}</RateStoreContext.Provider>;
+}
+
+function patchFeedAfterSync(
+  pair: FxPairState,
+  source: RateSource,
+  work: RateSource[],
+  outcome: Record<RateSource, '正常' | '失败'>,
+  syncedAt: string,
+  rangeDays: string[],
+): SourceFeed {
+  const feed = pair.feeds[source];
+  if (!pair.enabled || !work.includes(source) || !feed.connected) return feed;
+  if (outcome[source] === '失败') {
+    return { ...feed, lastSyncAt: syncedAt, syncStatus: '失败' };
+  }
+  return applySuccessfulSync(feed, syncedAt, rangeDays);
 }
 
 export function useRateStore() {

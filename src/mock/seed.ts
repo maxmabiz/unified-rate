@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import type { DailyBar, FxPairState, AppSnapshot, BufferConfig } from '@/types';
+import type { DailyBar, FxPairState, AppSnapshot, BufferConfig, RateSource, SourceFeed } from '@/types';
 import {
   DEFAULT_FEE,
   DEFAULT_VOLATILITY_BUFFER,
@@ -10,9 +10,12 @@ import {
   INITIAL_SYNC_AT,
   INITIAL_SYNC_RANGE_END,
   INITIAL_SYNC_RANGE_START,
+  suggestInvestingCode,
+  suggestReutersCode,
 } from '@/constants';
 import { EXCEL_OHLC, type ExcelPair, type OhlcQuote } from '@/mock/excelBars';
 import { isTradingDay, lastNCalendarDays, lastNTradingDays } from '@/utils/date';
+import { previousTradingClose } from '@/utils/rateCalc';
 
 export interface PairSeed {
   currency1: string;
@@ -21,13 +24,12 @@ export interface PairSeed {
   avg7: string;
   expectedQuote1: string;
   expectedQuote2: string;
-  previousMarketRate?: string;
 }
 
 export const PAIR_SEEDS: PairSeed[] = [
   { currency1: 'USD', currency2: 'CNY', reutersCode: 'USDCNY=', avg7: '6.7541', expectedQuote1: '6.4', expectedQuote2: '7.1' },
   { currency1: 'EUR', currency2: 'CNY', reutersCode: 'EURCNY=', avg7: '7.7694', expectedQuote1: '7.3', expectedQuote2: '8.2' },
-  { currency1: 'GBP', currency2: 'CNY', reutersCode: 'GBPCNY=', avg7: '9.0688', expectedQuote1: '8.6', expectedQuote2: '9.6', previousMarketRate: '8.9600' },
+  { currency1: 'GBP', currency2: 'CNY', reutersCode: 'GBPCNY=', avg7: '9.0688', expectedQuote1: '8.6', expectedQuote2: '9.6' },
   { currency1: 'EUR', currency2: 'USD', reutersCode: 'EUR=', avg7: '1.1504', expectedQuote1: '1.0', expectedQuote2: '1.3' },
   { currency1: 'GBP', currency2: 'USD', reutersCode: 'GBP=', avg7: '1.3428', expectedQuote1: '1.2', expectedQuote2: '1.5' },
   { currency1: 'USD', currency2: 'HKD', reutersCode: 'USDHKD=', avg7: '7.8426', expectedQuote1: '7.4', expectedQuote2: '8.3' },
@@ -161,32 +163,123 @@ export function typicalAvgFor(currency1: string, currency2: string): string {
   return TYPICAL_AVG[`${currency1}${currency2}`] ?? '1.0000';
 }
 
-export function createConfiguredPair(
-  input: { currency1: string; currency2: string; reutersCode: string },
-  buffer: BufferConfig,
-  syncedAt = nowLike(),
-): FxPairState {
-  const pair = `${input.currency1}${input.currency2}`;
+/** 原型演示：在可见窗口内造一个超过 1% 的交易日，预警随行情滚动而不是写死基准 */
+const DEMO_JUMP_PAIR = 'GBPCNY';
+const DEMO_JUMP_DATE = '2026-08-18';
+const DEMO_JUMP_RATIO = '1.012';
+
+export function applyDemoVolatilityJump(pair: string, history: DailyBar[]): DailyBar[] {
+  if (pair !== DEMO_JUMP_PAIR) return history;
+  const previous = previousTradingClose(history, DEMO_JUMP_DATE);
+  const index = history.findIndex((bar) => bar.date === DEMO_JUMP_DATE);
+  if (!previous || index < 0) return history;
+  const close = new Decimal(previous).mul(DEMO_JUMP_RATIO);
+  const bar = history[index];
+  const high = Decimal.max(new Decimal(bar.high), close);
+  const next = [...history];
+  next[index] = {
+    ...bar,
+    close: close.toFixed(6),
+    high: high.toFixed(6),
+  };
+  return next;
+}
+
+export function shiftBarsForInvesting(history: DailyBar[]): DailyBar[] {
+  return history.map((bar, index) => {
+    const factor = new Decimal('1.00055').plus(new Decimal((index % 5) - 2).mul('0.00012'));
+    const open = new Decimal(bar.open).mul(factor);
+    const close = new Decimal(bar.close).mul(factor);
+    const high = Decimal.max(open, close, new Decimal(bar.high).mul(factor));
+    const low = Decimal.min(open, close, new Decimal(bar.low).mul(factor));
+    return {
+      date: bar.date,
+      open: open.toFixed(6),
+      high: high.toFixed(6),
+      low: low.toFixed(6),
+      close: close.toFixed(6),
+    };
+  });
+}
+
+export function emptyFeed(code = ''): SourceFeed {
+  return {
+    code,
+    connected: false,
+    lastSyncAt: '',
+    syncStatus: '正常',
+    latestMarketRate: '0',
+    dataDate: '',
+    history: [],
+  };
+}
+
+export function feedFromHistory(
+  code: string,
+  history: DailyBar[],
+  connected = true,
+): SourceFeed {
+  const latestBar = history[history.length - 1];
+  return {
+    code: code.trim(),
+    connected,
+    lastSyncAt: connected && history.length ? INITIAL_SYNC_AT : '',
+    syncStatus: '正常',
+    latestMarketRate: latestBar?.close ?? '0',
+    dataDate: latestBar?.date ?? '',
+    history,
+  };
+}
+
+export function buildPairMarketHistory(currency1: string, currency2: string): DailyBar[] {
+  const pair = `${currency1}${currency2}`;
   const excelKey = pair as ExcelPair;
   const history = excelKey in EXCEL_OHLC
     ? buildHistoryFromExcel(excelKey, INITIAL_DATA_DATE, HISTORY_SEED_DAYS)
-    : buildSimulatedHistory(INITIAL_DATA_DATE, typicalAvgFor(input.currency1, input.currency2));
-  const latestBar = history[history.length - 1];
-  const previousBar = history[history.length - 2];
+    : buildSimulatedHistory(INITIAL_DATA_DATE, typicalAvgFor(currency1, currency2));
+  return applyDemoVolatilityJump(pair, history);
+}
+
+export interface CreatePairInput {
+  currency1: string;
+  currency2: string;
+  reutersCode: string;
+  investingCode: string;
+  reutersConnected?: boolean;
+  investingConnected?: boolean;
+  quoteSource?: RateSource;
+}
+
+export function createConfiguredPair(
+  input: CreatePairInput,
+  buffer: BufferConfig,
+  syncedAt = nowLike(),
+): FxPairState {
+  const currency1 = input.currency1.trim().toUpperCase();
+  const currency2 = input.currency2.trim().toUpperCase();
+  const reutersConnected = input.reutersConnected ?? true;
+  const investingConnected = input.investingConnected ?? true;
+  const quoteSource = input.quoteSource ?? 'reuters';
+  const market = buildPairMarketHistory(currency1, currency2);
 
   return {
-    id: pair,
-    currency1: input.currency1,
-    currency2: input.currency2,
-    pair,
-    pairLabel: `${input.currency1}/${input.currency2}`,
-    reutersCode: input.reutersCode.trim(),
-    latestMarketRate: latestBar.close,
-    previousMarketRate: previousBar.close,
-    dataDate: INITIAL_DATA_DATE,
-    lastSyncAt: INITIAL_SYNC_AT,
-    syncStatus: '正常',
-    history,
+    id: `${currency1}${currency2}`,
+    currency1,
+    currency2,
+    pair: `${currency1}${currency2}`,
+    pairLabel: `${currency1}/${currency2}`,
+    quoteSource,
+    feeds: {
+      reuters: reutersConnected
+        ? feedFromHistory(input.reutersCode || suggestReutersCode(currency1, currency2), market)
+        : emptyFeed(input.reutersCode),
+      investing: investingConnected
+        ? feedFromHistory(
+            input.investingCode || suggestInvestingCode(currency1, currency2),
+            shiftBarsForInvesting(market),
+          )
+        : emptyFeed(input.investingCode),
+    },
     volatilityBuffer: buffer.volatilityBuffer,
     fee: buffer.fee,
     enabled: true,
@@ -199,29 +292,17 @@ function nowLike() {
 }
 
 function toPairState(seed: PairSeed, buffer: BufferConfig): FxPairState {
-  const pair = `${seed.currency1}${seed.currency2}` as ExcelPair;
-  const history = buildHistoryFromExcel(pair, INITIAL_DATA_DATE, HISTORY_SEED_DAYS);
-  const latestBar = history[history.length - 1];
-  const previousBar = history[history.length - 2];
-
-  return {
-    id: pair,
-    currency1: seed.currency1,
-    currency2: seed.currency2,
-    pair,
-    pairLabel: `${seed.currency1}/${seed.currency2}`,
-    reutersCode: seed.reutersCode,
-    latestMarketRate: latestBar.close,
-    previousMarketRate: seed.previousMarketRate ?? previousBar.close,
-    dataDate: INITIAL_DATA_DATE,
-    lastSyncAt: INITIAL_SYNC_AT,
-    syncStatus: '正常',
-    history,
-    volatilityBuffer: buffer.volatilityBuffer,
-    fee: buffer.fee,
-    enabled: true,
-    configUpdatedAt: INITIAL_CALCULATED_AT,
-  };
+  return createConfiguredPair(
+    {
+      currency1: seed.currency1,
+      currency2: seed.currency2,
+      reutersCode: seed.reutersCode,
+      investingCode: suggestInvestingCode(seed.currency1, seed.currency2),
+      quoteSource: 'reuters',
+    },
+    buffer,
+    INITIAL_CALCULATED_AT,
+  );
 }
 
 export function createInitialSnapshot(): AppSnapshot {
@@ -229,13 +310,23 @@ export function createInitialSnapshot(): AppSnapshot {
     volatilityBuffer: DEFAULT_VOLATILITY_BUFFER,
     fee: DEFAULT_FEE,
   };
+  const range = {
+    start: INITIAL_SYNC_RANGE_START,
+    end: INITIAL_SYNC_RANGE_END,
+  };
 
   return {
-    lastSyncAt: INITIAL_SYNC_AT,
-    lastSyncStatus: '正常',
-    lastSyncRange: {
-      start: INITIAL_SYNC_RANGE_START,
-      end: INITIAL_SYNC_RANGE_END,
+    sourceSync: {
+      reuters: {
+        lastSyncAt: INITIAL_SYNC_AT,
+        lastSyncStatus: '正常',
+        lastSyncRange: range,
+      },
+      investing: {
+        lastSyncAt: INITIAL_SYNC_AT,
+        lastSyncStatus: '正常',
+        lastSyncRange: range,
+      },
     },
     lastCalculatedAt: INITIAL_CALCULATED_AT,
     globalBuffer,

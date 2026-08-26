@@ -4,6 +4,7 @@ import type { ColumnsType } from 'antd/es/table';
 import type { BufferConfig, EnrichedPair } from '@/types';
 import { computeQuotes, formatRate, fractionToPercentNumber, percentToFraction } from '@/utils/rateCalc';
 import { tradingBars } from '@/mock/seed';
+import { quoteHistory } from '@/utils/source';
 
 const { Text } = Typography;
 
@@ -56,7 +57,7 @@ export default function BufferConfigModal({
 
   const previewRows = useMemo<PreviewRow[]>(() => {
     return previewPairs.map((item) => {
-      const after = computeQuotes(tradingBars(item.history), nextConfig);
+      const after = computeQuotes(tradingBars(quoteHistory(item)), nextConfig);
       return {
         key: item.id,
         pair: item.pairLabel,
