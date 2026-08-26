@@ -133,15 +133,6 @@ body {
   line-height: 20px;
 }
 
-.page-alert {
-  margin-bottom: 12px;
-}
-
-.page-alert .ant-alert-title,
-.page-alert .ant-alert-message {
-  white-space: normal;
-}
-
 .page-card,
 .page-card.ant-card {
   width: 100%;
@@ -255,21 +246,26 @@ body {
 
 .rate-data-table.compact-table table {
   width: 100% !important;
-  min-width: max-content !important;
-  table-layout: auto !important;
+  table-layout: fixed !important;
 }
 
 .rate-data-table.compact-table .ant-table-thead > tr > th,
 .rate-data-table.compact-table .ant-table-tbody > tr > td {
-  width: 1%;
   white-space: nowrap;
-  padding-inline: 16px !important;
+  padding-inline: 12px !important;
 }
 
-.rate-data-table.compact-table .ant-table-thead > tr > th:last-child,
-.rate-data-table.compact-table .ant-table-tbody > tr > td:last-child {
-  width: auto;
-  padding-inline-end: 28px !important;
+.rate-data-table.compact-table .ant-table-cell {
+  overflow: hidden;
+}
+
+.rate-data-table .source-code {
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+}
+
+.rate-data-table .ant-tag {
+  margin-inline-end: 0;
 }
 
 .compact-table .ant-table-tbody > tr:hover > td {
@@ -305,6 +301,12 @@ body {
 
 .warning-row td {
   background: #fffbe6 !important;
+}
+
+.rate-data-table .warning-row .ant-tag-warning {
+  background: #fff;
+  border: 1px solid #faad14;
+  color: #d48806;
 }
 
 .summary-box {

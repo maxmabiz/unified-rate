@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react';
-import { App, Button, Card, Form, Select, Space, Table, Tooltip, Typography } from 'antd';
+import { App, Button, Card, DatePicker, Form, Modal, Select, Space, Table, Tooltip, Typography } from 'antd';
 import { CalculatorOutlined, SearchOutlined, SettingOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import type { Dayjs } from 'dayjs';
+import dayjs from 'dayjs';
 import BufferConfigModal from '@/components/BufferConfigModal';
 import CalcRuleModal from '@/components/CalcRuleModal';
-import { EffectiveTag, SourceTag } from '@/components/StatusTags';
+import { EffectiveTag, LockedTag, SourceTag } from '@/components/StatusTags';
 import { useRateStore } from '@/store/RateStore';
-import type { BufferConfig, EnrichedPair } from '@/types';
+import type { BufferConfig, EnrichedPair, OfficialQuote } from '@/types';
 import { formatDateTime } from '@/utils/date';
+import { isQuoteLocked, latestQuoteDate, quoteWindowLabel } from '@/utils/officialQuote';
 import { combinedBufferOf, formatPercent, formatRate } from '@/utils/rateCalc';
 
 const { Title, Paragraph } = Typography;
@@ -16,12 +19,15 @@ interface Filters {
   currency1?: string;
   currency2?: string;
   pair?: string;
+  quoteDate?: string;
 }
 
 export default function BusinessRatesPage() {
   const { message } = App.useApp();
   const {
     pairs,
+    officialQuotes,
+    unlockedQuoteDate,
     lastCalculatedAt,
     globalBuffer,
     calculating,
@@ -32,37 +38,88 @@ export default function BusinessRatesPage() {
   const [form] = Form.useForm();
   const [filters, setFilters] = useState<Filters>({});
   const [bufferOpen, setBufferOpen] = useState(false);
+  const [recalcOpen, setRecalcOpen] = useState(false);
   const [editingPair, setEditingPair] = useState<EnrichedPair | null>(null);
-  const [rulePair, setRulePair] = useState<EnrichedPair | null>(null);
+  const [ruleQuote, setRuleQuote] = useState<OfficialQuote | null>(null);
 
   const quotePairs = useMemo(() => pairs.filter((item) => item.enabled), [pairs]);
-  const currencies1 = [...new Set(quotePairs.map((item) => item.currency1))];
-  const currencies2 = [...new Set(quotePairs.map((item) => item.currency2))];
+  const latestDate = unlockedQuoteDate ?? latestQuoteDate(officialQuotes);
+  const enabledCount = quotePairs.length;
+
+  const quoteDates = useMemo(
+    () => [...new Set(officialQuotes.map((item) => item.quoteDate))].sort(),
+    [officialQuotes],
+  );
+
+  const pairById = useMemo(() => new Map(pairs.map((item) => [item.id, item])), [pairs]);
+
+  const selectedQuoteDate = filters.quoteDate === undefined ? latestDate : filters.quoteDate || undefined;
+
+  const currencies1 = [...new Set(officialQuotes.map((item) => item.currency1))];
+  const currencies2 = [...new Set(officialQuotes.map((item) => item.currency2))];
+  const pairOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const item of officialQuotes) {
+      seen.set(item.pair, item.pairLabel);
+    }
+    return [...seen.entries()].map(([value, label]) => ({ value, label }));
+  }, [officialQuotes]);
 
   const filtered = useMemo(() => {
-    return quotePairs.filter((item) => {
+    return officialQuotes.filter((item) => {
       if (filters.currency1 && item.currency1 !== filters.currency1) return false;
       if (filters.currency2 && item.currency2 !== filters.currency2) return false;
       if (filters.pair && item.pair !== filters.pair) return false;
+      if (selectedQuoteDate && item.quoteDate !== selectedQuoteDate) return false;
+      const pair = pairById.get(item.pairId);
+      if (item.quoteDate === latestDate && pair && !pair.enabled) return false;
       return true;
     });
-  }, [filters, quotePairs]);
+  }, [filters, officialQuotes, selectedQuoteDate, pairById, latestDate]);
+
+  const metaDateLabel = selectedQuoteDate
+    ? `${selectedQuoteDate}${isQuoteLocked(selectedQuoteDate, unlockedQuoteDate) ? '（已锁定）' : ''}`
+    : filters.quoteDate === ''
+      ? '全部'
+      : (latestDate ?? '-');
+  const metaQuote = filtered[0] ?? officialQuotes.find((item) => item.quoteDate === (selectedQuoteDate || latestDate));
+  const metaCalculatedAt = selectedQuoteDate && selectedQuoteDate !== latestDate
+    ? metaQuote?.calculatedAt
+    : lastCalculatedAt;
 
   const handleSaveGlobal = (config: BufferConfig) => {
     saveGlobalBuffer(config);
     setBufferOpen(false);
-    message.success('保存成功，已按新的综合缓冲因子重新计算全部业务报价汇率');
+    message.success(
+      latestDate
+        ? `保存成功，已按新的综合缓冲因子重算 ${latestDate} 全部已启用货币对`
+        : '保存成功，已按新的综合缓冲因子重新计算全部业务报价汇率',
+    );
   };
 
   const handleSavePair = (config: BufferConfig) => {
     if (!editingPair) return;
     savePairBuffer(editingPair.id, config);
     setEditingPair(null);
-    message.success('保存成功，已重新计算该货币对的业务报价汇率');
+    message.success(
+      latestDate
+        ? `保存成功，已重新计算 ${editingPair.pairLabel} 在 ${latestDate} 的业务报价汇率`
+        : '保存成功，已重新计算该货币对的业务报价汇率',
+    );
   };
 
-  const columns: ColumnsType<EnrichedPair> = [
-    { title: '更新日期', dataIndex: 'updateDate', width: 112 },
+  const handleRecalculate = () => {
+    recalculate();
+    setRecalcOpen(false);
+    message.success(
+      latestDate
+        ? `已按 ${latestDate} 行情重算 ${enabledCount} 个货币对。`
+        : '已按当前市场数据和缓冲因子重新计算',
+    );
+  };
+
+  const columns: ColumnsType<OfficialQuote> = [
+    { title: '行情日期', dataIndex: 'quoteDate', width: 112 },
     {
       title: '货币对',
       dataIndex: 'pairLabel',
@@ -72,7 +129,7 @@ export default function BusinessRatesPage() {
       title: '报价数据源',
       dataIndex: 'quoteSource',
       width: 112,
-      render: (source: EnrichedPair['quoteSource']) => <SourceTag source={source} />,
+      render: (source: OfficialQuote['quoteSource']) => <SourceTag source={source} />,
     },
     {
       title: '7日均价',
@@ -119,25 +176,38 @@ export default function BusinessRatesPage() {
       ),
     },
     {
+      title: '计算时间',
+      dataIndex: 'calculatedAt',
+      width: 168,
+      render: (value: string) => formatDateTime(value),
+    },
+    {
       title: '状态',
       key: 'status',
-      width: 80,
-      render: () => <EffectiveTag />,
+      width: 88,
+      render: (_, record) =>
+        isQuoteLocked(record.quoteDate, unlockedQuoteDate) ? <LockedTag /> : <EffectiveTag />,
     },
     {
       title: '操作',
       key: 'action',
       width: 168,
-      render: (_, record) => (
-        <Space size={12}>
-          <Button type="link" onClick={() => setRulePair(record)}>
-            计算规则
-          </Button>
-          <Button type="link" onClick={() => setEditingPair(record)}>
-            缓冲因子
-          </Button>
-        </Space>
-      ),
+      render: (_, record) => {
+        const locked = isQuoteLocked(record.quoteDate, unlockedQuoteDate);
+        const pair = pairById.get(record.pairId);
+        return (
+          <Space size={12}>
+            <Button type="link" onClick={() => setRuleQuote(record)}>
+              计算规则
+            </Button>
+            {locked || !pair ? null : (
+              <Button type="link" onClick={() => setEditingPair(pair)}>
+                缓冲因子
+              </Button>
+            )}
+          </Space>
+        );
+      },
     },
   ];
 
@@ -146,7 +216,7 @@ export default function BusinessRatesPage() {
       <div className="page-header">
         <Title level={3}>业务报价汇率</Title>
         <Paragraph className="page-desc">
-          按指定数据源近 7 个交易日均价和综合缓冲因子，生成两个结算方向的可用报价。
+          官方报价按行情日存档。默认查看最新报价日；历史日报价已冻结，仅可查阅。
         </Paragraph>
       </div>
 
@@ -154,8 +224,16 @@ export default function BusinessRatesPage() {
         <div className="meta-strip">
           <div className="meta-stats">
             <div className="meta-stat">
+              <span className="k">报价数据日</span>
+              <span className="v">{metaDateLabel}</span>
+            </div>
+            <div className="meta-stat">
+              <span className="k">近7交易日</span>
+              <span className="v">{metaQuote ? quoteWindowLabel(metaQuote.history) : '-'}</span>
+            </div>
+            <div className="meta-stat">
               <span className="k">最近计算时间</span>
-              <span className="v">{formatDateTime(lastCalculatedAt)}</span>
+              <span className="v">{formatDateTime(metaCalculatedAt)}</span>
             </div>
             <div className="meta-stat">
               <span className="k">综合缓冲因子</span>
@@ -171,10 +249,8 @@ export default function BusinessRatesPage() {
                 type="primary"
                 icon={<CalculatorOutlined />}
                 loading={calculating}
-                onClick={() => {
-                  recalculate();
-                  message.success('已按当前市场数据和缓冲因子重新计算');
-                }}
+                disabled={!enabledCount}
+                onClick={() => setRecalcOpen(true)}
               >
                 重新计算
               </Button>
@@ -182,7 +258,21 @@ export default function BusinessRatesPage() {
           </div>
         </div>
 
-        <Form className="filter-bar" form={form} layout="inline" colon={false} onFinish={setFilters}>
+        <Form
+          className="filter-bar"
+          form={form}
+          layout="inline"
+          colon={false}
+          initialValues={{ quoteDate: latestDate ? dayjs(latestDate) : undefined }}
+          onFinish={(values: { currency1?: string; currency2?: string; pair?: string; quoteDate?: Dayjs }) => {
+            setFilters({
+              currency1: values.currency1,
+              currency2: values.currency2,
+              pair: values.pair,
+              quoteDate: values.quoteDate ? values.quoteDate.format('YYYY-MM-DD') : '',
+            });
+          }}
+        >
           <Form.Item name="currency1" label="基准货币">
             <Select
               allowClear
@@ -200,11 +290,13 @@ export default function BusinessRatesPage() {
             />
           </Form.Item>
           <Form.Item name="pair" label="货币对">
-            <Select
-              allowClear
-              placeholder="全部"
+            <Select allowClear placeholder="全部" style={{ width: 148 }} options={pairOptions} />
+          </Form.Item>
+          <Form.Item name="quoteDate" label="报价日期">
+            <DatePicker
               style={{ width: 148 }}
-              options={quotePairs.map((item) => ({ value: item.pair, label: item.pairLabel }))}
+              allowClear
+              disabledDate={(date) => !quoteDates.includes(date.format('YYYY-MM-DD'))}
             />
           </Form.Item>
           <Form.Item>
@@ -215,6 +307,7 @@ export default function BusinessRatesPage() {
               <Button
                 onClick={() => {
                   form.resetFields();
+                  form.setFieldsValue({ quoteDate: latestDate ? dayjs(latestDate) : undefined });
                   setFilters({});
                 }}
               >
@@ -231,6 +324,7 @@ export default function BusinessRatesPage() {
           columns={columns}
           dataSource={filtered}
           tableLayout="fixed"
+          scroll={{ x: 1180 }}
           pagination={{
             pageSize: 10,
             showTotal: (total) => `共 ${total} 条`,
@@ -259,7 +353,28 @@ export default function BusinessRatesPage() {
         onCancel={() => setEditingPair(null)}
         onSave={handleSavePair}
       />
-      <CalcRuleModal open={!!rulePair} pair={rulePair} onClose={() => setRulePair(null)} />
+      <Modal
+        title="重新计算当前报价日？"
+        open={recalcOpen}
+        onCancel={() => setRecalcOpen(false)}
+        onOk={handleRecalculate}
+        okText="重算"
+        cancelText="取消"
+        confirmLoading={calculating}
+        destroyOnHidden
+      >
+        <Paragraph>
+          {latestDate
+            ? `将按各货币对报价数据源截至 ${latestDate} 的近 7 个交易日均价，重算全部已启用货币对（${enabledCount} 个）。`
+            : '将按当前市场数据和缓冲因子重算全部已启用货币对。'}
+        </Paragraph>
+        {latestDate ? (
+          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            仅更新 {latestDate} 的官方报价，已锁定的历史日不会改写。
+          </Paragraph>
+        ) : null}
+      </Modal>
+      <CalcRuleModal open={!!ruleQuote} quote={ruleQuote} onClose={() => setRuleQuote(null)} />
     </div>
   );
 }

@@ -15,6 +15,7 @@ import {
 } from '@/constants';
 import { EXCEL_OHLC, type ExcelPair, type OhlcQuote } from '@/mock/excelBars';
 import { isTradingDay, lastNCalendarDays, lastNTradingDays } from '@/utils/date';
+import { seedOfficialQuotes } from '@/utils/officialQuote';
 import { previousTradingClose } from '@/utils/rateCalc';
 
 export interface PairSeed {
@@ -39,10 +40,6 @@ export const PAIR_SEEDS: PairSeed[] = [
 
 const AVG_OFFSETS = ['-0.0042', '-0.0018', '0.0026', '-0.0031', '0.0038', '-0.0009'];
 const HALF_SPREADS = ['0.0040', '0.0032', '0.0046', '0.0035', '0.0044', '0.0034', '0.0038'];
-
-export function tradingBars(history: DailyBar[], count = 7): DailyBar[] {
-  return history.filter((bar) => isTradingDay(bar.date)).slice(-count);
-}
 
 export function toDailyBar(date: string, quote: OhlcQuote): DailyBar {
   return {
@@ -314,6 +311,7 @@ export function createInitialSnapshot(): AppSnapshot {
     start: INITIAL_SYNC_RANGE_START,
     end: INITIAL_SYNC_RANGE_END,
   };
+  const pairs = PAIR_SEEDS.map((seed) => toPairState(seed, globalBuffer));
 
   return {
     sourceSync: {
@@ -330,6 +328,7 @@ export function createInitialSnapshot(): AppSnapshot {
     },
     lastCalculatedAt: INITIAL_CALCULATED_AT,
     globalBuffer,
-    pairs: PAIR_SEEDS.map((seed) => toPairState(seed, globalBuffer)),
+    pairs,
+    officialQuotes: seedOfficialQuotes(pairs),
   };
 }

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { App, Button, Card, Form, Popconfirm, Select, Space, Table, Typography } from 'antd';
+import { App, Button, Card, Form, Modal, Select, Space, Table, Tooltip, Typography } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import PairFormModal, { type PairFormValues } from '@/components/PairFormModal';
@@ -7,8 +7,9 @@ import { EnabledTag, SourceTag } from '@/components/StatusTags';
 import { useRateStore } from '@/store/RateStore';
 import type { EnrichedPair } from '@/types';
 import { formatDateTime } from '@/utils/date';
+import { firstQuoteDate } from '@/utils/officialQuote';
 
-const { Title } = Typography;
+const { Title, Paragraph } = Typography;
 
 interface Filters {
   pair?: string;
@@ -17,11 +18,12 @@ interface Filters {
 
 export default function PairConfigPage() {
   const { message } = App.useApp();
-  const { pairs, addPair, updatePair, setPairEnabled } = useRateStore();
+  const { pairs, officialQuotes, addPair, updatePair, setPairEnabled } = useRateStore();
   const [form] = Form.useForm();
   const [filters, setFilters] = useState<Filters>({});
   const [modalOpen, setModalOpen] = useState(false);
   const [editingPair, setEditingPair] = useState<EnrichedPair | null>(null);
+  const [disablingPair, setDisablingPair] = useState<EnrichedPair | null>(null);
 
   const enabledCount = pairs.filter((item) => item.enabled).length;
 
@@ -71,6 +73,7 @@ export default function PairConfigPage() {
       message.error(result.error || '操作失败');
       return;
     }
+    if (!enabled) setDisablingPair(null);
     message.success(enabled ? `已启用 ${pair.pairLabel}` : `已停用 ${pair.pairLabel}，历史行情仍保留`);
   };
 
@@ -93,6 +96,16 @@ export default function PairConfigPage() {
       render: (enabled: boolean) => <EnabledTag enabled={enabled} />,
     },
     {
+      title: (
+        <Tooltip title="该货币对已存档官方报价中最早的行情日，用于看清从哪天开始报；不是预约生效日。">
+          <span>首次报价日</span>
+        </Tooltip>
+      ),
+      key: 'firstQuoteDate',
+      width: 120,
+      render: (_, record) => firstQuoteDate(officialQuotes, record.id) ?? '-',
+    },
+    {
       title: '最近更新时间',
       dataIndex: 'configUpdatedAt',
       width: 176,
@@ -108,15 +121,9 @@ export default function PairConfigPage() {
             编辑
           </Button>
           {record.enabled ? (
-            <Popconfirm
-              title={`停用 ${record.pairLabel}？`}
-              description="停用后不再出现在业务报价汇率中，已同步的历史行情仍保留。"
-              okText="停用"
-              cancelText="取消"
-              onConfirm={() => handleToggle(record, false)}
-            >
-              <Button type="link">停用</Button>
-            </Popconfirm>
+            <Button type="link" onClick={() => setDisablingPair(record)}>
+              停用
+            </Button>
           ) : (
             <Button type="link" onClick={() => handleToggle(record, true)}>
               启用
@@ -200,6 +207,7 @@ export default function PairConfigPage() {
           columns={columns}
           dataSource={filtered}
           tableLayout="fixed"
+          scroll={{ x: 1180 }}
           pagination={{
             pageSize: 10,
             showTotal: (total) => `共 ${total} 条`,
@@ -218,6 +226,23 @@ export default function PairConfigPage() {
         }}
         onSubmit={handleSubmit}
       />
+      <Modal
+        title={disablingPair ? `停用 ${disablingPair.pairLabel}？` : '停用货币对？'}
+        open={!!disablingPair}
+        onCancel={() => setDisablingPair(null)}
+        onOk={() => {
+          if (disablingPair) handleToggle(disablingPair, false);
+        }}
+        okText="停用"
+        cancelText="取消"
+        okButtonProps={{ danger: true }}
+        destroyOnHidden
+      >
+        <Paragraph>停用后不再出现在当天业务报价中。</Paragraph>
+        <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+          已存档的历史报价和已同步行情仍可查阅，不会删除。
+        </Paragraph>
+      </Modal>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import type {
   DateRange,
   EnrichedPair,
   FxPairState,
+  OfficialQuote,
   PairConfigInput,
   RateDailyRow,
   RateSource,
@@ -20,10 +21,10 @@ import {
   feedFromHistory,
   mockBarForDate,
   shiftBarsForInvesting,
-  tradingBars,
   buildPairMarketHistory,
 } from '@/mock/seed';
-import { calendarDaysInRange, lastNCalendarDays, nowText } from '@/utils/date';
+import { calendarDaysInRange, lastNCalendarDays, nowText, tradingBars } from '@/utils/date';
+import { openQuoteDate, rebuildOpenDayQuotes } from '@/utils/officialQuote';
 import {
   averageFromHistory,
   barHasVolatilityWarning,
@@ -37,6 +38,8 @@ interface RateStoreValue {
   lastCalculatedAt: string;
   globalBuffer: BufferConfig;
   pairs: EnrichedPair[];
+  officialQuotes: OfficialQuote[];
+  unlockedQuoteDate?: string;
   dailyRows: RateDailyRow[];
   syncing: boolean;
   calculating: boolean;
@@ -265,30 +268,42 @@ export function RateProvider({ children }: { children: ReactNode }) {
       (pair) => pair.enabled && work.includes(pair.quoteSource) && pair.feeds[pair.quoteSource].connected && outcome[pair.quoteSource] === '正常',
     );
 
-    setSnapshot((prev) => ({
-      ...prev,
-      lastCalculatedAt: anyQuoteUpdated ? nowText(dayjs().add(2, 'second')) : prev.lastCalculatedAt,
-      sourceSync: {
-        ...prev.sourceSync,
-        ...Object.fromEntries(
-          work.map((source) => [
-            source,
-            {
-              lastSyncAt: syncedAt,
-              lastSyncStatus: outcome[source],
-              lastSyncRange: range,
-            },
-          ]),
-        ),
-      },
-      pairs: prev.pairs.map((pair) => ({
+    setSnapshot((prev) => {
+      const nextPairs = prev.pairs.map((pair) => ({
         ...pair,
         feeds: {
           reuters: patchFeedAfterSync(pair, 'reuters', work, outcome, syncedAt, rangeDays),
           investing: patchFeedAfterSync(pair, 'investing', work, outcome, syncedAt, rangeDays),
         },
-      })),
-    }));
+      }));
+      const calculatedAt = anyQuoteUpdated ? nowText(dayjs().add(2, 'second')) : prev.lastCalculatedAt;
+      const quotePairIds = anyQuoteUpdated
+        ? nextPairs
+            .filter((pair) => pair.enabled && work.includes(pair.quoteSource) && outcome[pair.quoteSource] === '正常')
+            .map((pair) => pair.id)
+        : [];
+      return {
+        ...prev,
+        lastCalculatedAt: calculatedAt,
+        sourceSync: {
+          ...prev.sourceSync,
+          ...Object.fromEntries(
+            work.map((source) => [
+              source,
+              {
+                lastSyncAt: syncedAt,
+                lastSyncStatus: outcome[source],
+                lastSyncRange: range,
+              },
+            ]),
+          ),
+        },
+        pairs: nextPairs,
+        officialQuotes: quotePairIds.length
+          ? rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, quotePairIds)
+          : prev.officialQuotes,
+      };
+    });
     setSyncing(false);
 
     if (work.every((source) => outcome[source] === '失败')) {
@@ -303,37 +318,51 @@ export function RateProvider({ children }: { children: ReactNode }) {
   const recalculate = useCallback(() => {
     setCalculating(true);
     window.setTimeout(() => {
-      setSnapshot((prev) => ({
-        ...prev,
-        lastCalculatedAt: nowText(),
-      }));
+      setSnapshot((prev) => {
+        const calculatedAt = nowText();
+        return {
+          ...prev,
+          lastCalculatedAt: calculatedAt,
+          officialQuotes: rebuildOpenDayQuotes(prev.pairs, prev.officialQuotes, calculatedAt),
+        };
+      });
       setCalculating(false);
     }, 400);
   }, []);
 
   const saveGlobalBuffer = useCallback((config: BufferConfig) => {
-    setSnapshot((prev) => ({
-      ...prev,
-      globalBuffer: config,
-      lastCalculatedAt: nowText(),
-      pairs: prev.pairs.map((pair) => ({
+    setSnapshot((prev) => {
+      const calculatedAt = nowText();
+      const nextPairs = prev.pairs.map((pair) => ({
         ...pair,
         volatilityBuffer: config.volatilityBuffer,
         fee: config.fee,
-      })),
-    }));
+      }));
+      return {
+        ...prev,
+        globalBuffer: config,
+        lastCalculatedAt: calculatedAt,
+        pairs: nextPairs,
+        officialQuotes: rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt),
+      };
+    });
   }, []);
 
   const savePairBuffer = useCallback((id: string, config: BufferConfig) => {
-    setSnapshot((prev) => ({
-      ...prev,
-      lastCalculatedAt: nowText(),
-      pairs: prev.pairs.map((pair) =>
+    setSnapshot((prev) => {
+      const calculatedAt = nowText();
+      const nextPairs = prev.pairs.map((pair) =>
         pair.id === id
           ? { ...pair, volatilityBuffer: config.volatilityBuffer, fee: config.fee }
           : pair,
-      ),
-    }));
+      );
+      return {
+        ...prev,
+        lastCalculatedAt: calculatedAt,
+        pairs: nextPairs,
+        officialQuotes: rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, [id]),
+      };
+    });
   }, []);
 
   const addPair = useCallback((input: PairConfigInput) => {
@@ -358,10 +387,9 @@ export function RateProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: '英为财经代码已被其他货币对使用' };
     }
 
-    setSnapshot((prev) => ({
-      ...prev,
-      lastCalculatedAt: nowText(),
-      pairs: [
+    setSnapshot((prev) => {
+      const calculatedAt = nowText();
+      const nextPairs = [
         ...prev.pairs,
         createConfiguredPair(
           {
@@ -374,10 +402,16 @@ export function RateProvider({ children }: { children: ReactNode }) {
             quoteSource: input.quoteSource,
           },
           prev.globalBuffer,
-          nowText(),
+          calculatedAt,
         ),
-      ],
-    }));
+      ];
+      return {
+        ...prev,
+        lastCalculatedAt: calculatedAt,
+        pairs: nextPairs,
+        officialQuotes: rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, [id]),
+      };
+    });
     return { ok: true };
   }, [snapshot.pairs]);
 
@@ -403,9 +437,8 @@ export function RateProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: '英为财经代码已被其他货币对使用' };
     }
 
-    setSnapshot((prev) => ({
-      ...prev,
-      pairs: prev.pairs.map((pair) =>
+    setSnapshot((prev) => {
+      const nextPairs = prev.pairs.map((pair) =>
         pair.id === id
           ? {
               ...pair,
@@ -431,8 +464,18 @@ export function RateProvider({ children }: { children: ReactNode }) {
               },
             }
           : pair,
-      ),
-    }));
+      );
+      const next = nextPairs.find((pair) => pair.id === id);
+      const calculatedAt = nowText();
+      return {
+        ...prev,
+        lastCalculatedAt: next?.enabled ? calculatedAt : prev.lastCalculatedAt,
+        pairs: nextPairs,
+        officialQuotes: next?.enabled
+          ? rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, [id])
+          : prev.officialQuotes,
+      };
+    });
     return { ok: true };
   }, [snapshot.pairs]);
 
@@ -440,17 +483,26 @@ export function RateProvider({ children }: { children: ReactNode }) {
     const target = snapshot.pairs.find((pair) => pair.id === id);
     if (!target) return { ok: false, error: '货币对不存在' };
 
-    setSnapshot((prev) => ({
-      ...prev,
-      lastCalculatedAt: enabled ? nowText() : prev.lastCalculatedAt,
-      pairs: prev.pairs.map((pair) =>
+    setSnapshot((prev) => {
+      const calculatedAt = nowText();
+      const nextPairs = prev.pairs.map((pair) =>
         pair.id === id
-          ? { ...pair, enabled, configUpdatedAt: nowText() }
+          ? { ...pair, enabled, configUpdatedAt: calculatedAt }
           : pair,
-      ),
-    }));
+      );
+      return {
+        ...prev,
+        lastCalculatedAt: enabled ? calculatedAt : prev.lastCalculatedAt,
+        pairs: nextPairs,
+        officialQuotes: enabled
+          ? rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, [id])
+          : prev.officialQuotes,
+      };
+    });
     return { ok: true };
   }, [snapshot.pairs]);
+
+  const unlockedQuoteDate = useMemo(() => openQuoteDate(snapshot.pairs), [snapshot.pairs]);
 
   const value = useMemo<RateStoreValue>(
     () => ({
@@ -458,6 +510,8 @@ export function RateProvider({ children }: { children: ReactNode }) {
       lastCalculatedAt: snapshot.lastCalculatedAt,
       globalBuffer: snapshot.globalBuffer,
       pairs,
+      officialQuotes: snapshot.officialQuotes,
+      unlockedQuoteDate,
       dailyRows,
       syncing,
       calculating,
@@ -473,6 +527,8 @@ export function RateProvider({ children }: { children: ReactNode }) {
       snapshot.sourceSync,
       snapshot.lastCalculatedAt,
       snapshot.globalBuffer,
+      snapshot.officialQuotes,
+      unlockedQuoteDate,
       pairs,
       dailyRows,
       syncing,

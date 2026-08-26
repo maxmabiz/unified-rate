@@ -28,3 +28,7 @@ export function EffectiveTag() {
   return <Tag color="success">有效</Tag>;
 }
 
+export function LockedTag() {
+  return <Tag>已锁定</Tag>;
+}
+

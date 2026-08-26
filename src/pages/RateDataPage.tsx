@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import {
-  Alert,
   App,
   Button,
   Card,
@@ -14,7 +13,7 @@ import {
 } from 'antd';
 import { ReloadOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import dayjs, { type Dayjs } from 'dayjs';
+import type { Dayjs } from 'dayjs';
 import { RATE_SOURCE_LABEL } from '@/constants';
 import HistoryDrawer from '@/components/HistoryDrawer';
 import ManualSyncModal from '@/components/ManualSyncModal';
@@ -23,7 +22,6 @@ import { useRateStore } from '@/store/RateStore';
 import { RATE_SOURCE_IDS, type DateRange, type RateDailyRow, type RateSource, type SyncStatus } from '@/types';
 import { formatDateTime, formatSyncRange } from '@/utils/date';
 import { formatRate, formatSignedPercent } from '@/utils/rateCalc';
-import { formatLatestVolatilityAlert, latestTradingDayWarnings } from '@/utils/volatilityAlert';
 
 const { Title } = Typography;
 
@@ -32,7 +30,6 @@ interface Filters {
   source?: RateSource;
   dataDate?: string;
   syncStatus?: SyncStatus;
-  warningsOnly?: boolean;
 }
 
 function RateCell({ value }: { value: string }) {
@@ -59,31 +56,15 @@ export default function RateDataPage() {
   const [historyRow, setHistoryRow] = useState<RateDailyRow | null>(null);
   const [syncOpen, setSyncOpen] = useState(false);
 
-  const latestWarnings = useMemo(() => latestTradingDayWarnings(dailyRows), [dailyRows]);
-  const alertText = formatLatestVolatilityAlert(latestWarnings);
-
   const filtered = useMemo(() => {
     return dailyRows.filter((item) => {
       if (filters.pair && item.pair !== filters.pair) return false;
       if (filters.source && item.source !== filters.source) return false;
       if (filters.dataDate && item.dataDate !== filters.dataDate) return false;
       if (filters.syncStatus && item.syncStatus !== filters.syncStatus) return false;
-      if (filters.warningsOnly && !item.hasVolatilityWarning) return false;
       return true;
     });
   }, [dailyRows, filters]);
-
-  const showLatestWarnings = () => {
-    const date = latestWarnings[0]?.dataDate;
-    if (!date) return;
-    form.setFieldsValue({
-      pair: undefined,
-      source: undefined,
-      dataDate: dayjs(date),
-      syncStatus: undefined,
-    });
-    setFilters({ dataDate: date, warningsOnly: true });
-  };
 
   const handleSync = async (range: DateRange, sources: RateSource[]) => {
     const result = await syncAll(range, sources);
@@ -96,65 +77,69 @@ export default function RateDataPage() {
   };
 
   const columns: ColumnsType<RateDailyRow> = [
-    { title: '货币对', dataIndex: 'pairLabel' },
-    { title: '数据日期', dataIndex: 'dataDate' },
+    { title: '货币对', dataIndex: 'pairLabel', width: 100 },
+    { title: '数据日期', dataIndex: 'dataDate', width: 112 },
     {
       title: '数据来源',
-      dataIndex: 'source',
-      render: (source: RateSource) => <SourceTag source={source} />,
-    },
-    {
-      title: '源代码',
-      dataIndex: 'sourceCode',
+      key: 'source',
+      width: 176,
+      render: (_, record) => (
+        <Space size={6} wrap={false}>
+          <SourceTag source={record.source} />
+          <span className="source-code">{record.sourceCode}</span>
+        </Space>
+      ),
     },
     {
       title: <Tooltip title="Open">开盘</Tooltip>,
       dataIndex: 'open',
       align: 'right',
+      width: 96,
       render: (value: string) => <RateCell value={value} />,
     },
     {
       title: <Tooltip title="High">最高</Tooltip>,
       dataIndex: 'high',
       align: 'right',
+      width: 96,
       render: (value: string) => <RateCell value={value} />,
     },
     {
       title: <Tooltip title="Low">最低</Tooltip>,
       dataIndex: 'low',
       align: 'right',
+      width: 96,
       render: (value: string) => <RateCell value={value} />,
     },
     {
       title: <Tooltip title="Close">收盘</Tooltip>,
       dataIndex: 'close',
       align: 'right',
+      width: 96,
       render: (value: string) => <RateCell value={value} />,
     },
     {
       title: <Tooltip title="相对上一交易日收盘">涨跌幅</Tooltip>,
       dataIndex: 'changeRatio',
       align: 'right',
-      render: (value: string | null) => <ChangePctCell ratio={value} />,
-    },
-    {
-      title: '最近同步时间',
-      dataIndex: 'lastSyncAt',
-      render: (value: string) => formatDateTime(value),
-    },
-    {
-      title: '同步状态',
-      dataIndex: 'syncStatus',
-      render: (_, record) => (
-        <Space size={4} wrap={false}>
-          <SyncStatusTag status={record.syncStatus} />
+      width: 176,
+      render: (value: string | null, record) => (
+        <Space size={6} wrap={false}>
+          <ChangePctCell ratio={value} />
           {record.hasVolatilityWarning ? <WarningTag /> : null}
         </Space>
       ),
     },
     {
+      title: '同步状态',
+      dataIndex: 'syncStatus',
+      width: 88,
+      render: (status: SyncStatus) => <SyncStatusTag status={status} />,
+    },
+    {
       title: '操作',
       key: 'action',
+      width: 80,
       render: (_, record) => (
         <Button type="link" onClick={() => setHistoryRow(record)}>
           近7日
@@ -168,20 +153,6 @@ export default function RateDataPage() {
       <div className="page-header">
         <Title level={3}>汇率数据</Title>
       </div>
-
-      {latestWarnings.length > 0 ? (
-        <Alert
-          className="page-alert"
-          type="warning"
-          showIcon
-          title={alertText}
-          action={
-            <Button size="small" onClick={showLatestWarnings}>
-              查看
-            </Button>
-          }
-        />
-      ) : null}
 
       <Card className="page-card" variant="outlined">
         <div className="meta-strip">
@@ -281,7 +252,7 @@ export default function RateDataPage() {
           rowKey="id"
           columns={columns}
           dataSource={filtered}
-          tableLayout="auto"
+          tableLayout="fixed"
           pagination={{
             pageSize: 20,
             showTotal: (total) => `共 ${total} 条`,

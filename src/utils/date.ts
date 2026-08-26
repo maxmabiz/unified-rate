@@ -1,8 +1,14 @@
 import dayjs, { type Dayjs } from 'dayjs';
 
+import type { DailyBar } from '@/types';
+
 export function isTradingDay(date: string | Dayjs): boolean {
   const weekday = dayjs(date).day();
   return weekday !== 0 && weekday !== 6;
+}
+
+export function tradingBars(history: DailyBar[], count = 7): DailyBar[] {
+  return history.filter((bar) => isTradingDay(bar.date)).slice(-count);
 }
 
 export function lastNTradingDays(endDate: string, n: number): string[] {

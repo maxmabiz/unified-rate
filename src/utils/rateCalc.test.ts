@@ -93,7 +93,8 @@ describe('业务报价汇率计算', () => {
 
 describe('汇率数据最近10天模拟', () => {
   it('列表展开为 8 个货币对 × 2 个数据源 × 10 个自然日，且包含 2026-08-18', async () => {
-    const { createInitialSnapshot, tradingBars } = await import('@/mock/seed');
+    const { createInitialSnapshot } = await import('@/mock/seed');
+    const { tradingBars } = await import('@/utils/date');
     const { flattenDailyRows } = await import('@/store/RateStore');
     const { quoteFeed, quoteHistory } = await import('@/utils/source');
 
@@ -138,12 +139,6 @@ describe('汇率数据最近10天模拟', () => {
     expect(formatSignedPercent(gbpJump?.changeRatio)).toBe('+1.20%');
     const usdQuiet = rows.find((row) => row.pair === 'USDCNY' && row.dataDate === '2026-08-18' && row.source === 'reuters');
     expect(usdQuiet?.hasVolatilityWarning).toBe(false);
-
-    const { latestTradingDayWarnings, formatLatestVolatilityAlert } = await import('@/utils/volatilityAlert');
-    const latestWarnings = latestTradingDayWarnings(rows);
-    expect(latestWarnings.every((item) => item.dataDate === '2026-08-18')).toBe(true);
-    expect(formatLatestVolatilityAlert(latestWarnings)).toContain('GBP/CNY Reuters +1.20%');
-    expect(formatLatestVolatilityAlert(latestWarnings)).toContain('GBP/CNY 英为财经');
   });
 
   it('新增货币对会为两路数据源生成模拟行情且默认启用', async () => {

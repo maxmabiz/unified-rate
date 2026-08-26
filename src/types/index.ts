@@ -47,6 +47,25 @@ export interface EnrichedPair extends FxPairState, ComputedQuotes {
   updateDate: string;
 }
 
+export interface OfficialQuote {
+  id: string;
+  pairId: string;
+  currency1: string;
+  currency2: string;
+  pair: string;
+  pairLabel: string;
+  quoteDate: string;
+  quoteSource: RateSource;
+  avg7: string;
+  combinedBuffer: string;
+  volatilityBuffer: string;
+  fee: string;
+  quoteCcy1: string;
+  quoteCcy2: string;
+  calculatedAt: string;
+  history: DailyBar[];
+}
+
 export interface RateDailyRow {
   id: string;
   pairId: string;
@@ -88,6 +107,7 @@ export interface AppSnapshot {
   lastCalculatedAt: string;
   globalBuffer: BufferConfig;
   pairs: FxPairState[];
+  officialQuotes: OfficialQuote[];
 }
 
 export interface PairConfigInput {

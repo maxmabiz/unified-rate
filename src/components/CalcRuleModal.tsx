@@ -1,23 +1,22 @@
 import { Descriptions, Modal, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import type { DailyBar, EnrichedPair } from '@/types';
-import { formatPercent, formatRate } from '@/utils/rateCalc';
-import { tradingBars } from '@/mock/seed';
+import type { DailyBar, OfficialQuote } from '@/types';
 import { RATE_SOURCE_LABEL } from '@/constants';
-import { quoteHistory } from '@/utils/source';
+import { quoteWindowLabel } from '@/utils/officialQuote';
+import { formatPercent, formatRate } from '@/utils/rateCalc';
 
 const { Paragraph } = Typography;
 
 interface CalcRuleModalProps {
-  pair: EnrichedPair | null;
+  quote: OfficialQuote | null;
   open: boolean;
   onClose: () => void;
 }
 
-export default function CalcRuleModal({ pair, open, onClose }: CalcRuleModalProps) {
-  if (!pair) return null;
+export default function CalcRuleModal({ quote, open, onClose }: CalcRuleModalProps) {
+  if (!quote) return null;
 
-  const history = tradingBars(quoteHistory(pair));
+  const history = quote.history;
 
   const columns: ColumnsType<DailyBar> = [
     { title: '交易日期', dataIndex: 'date', width: 120 },
@@ -49,7 +48,7 @@ export default function CalcRuleModal({ pair, open, onClose }: CalcRuleModalProp
 
   return (
     <Modal
-      title={`${pair.pairLabel} 计算规则`}
+      title={`${quote.pairLabel} 计算规则`}
       open={open}
       onCancel={onClose}
       footer={null}
@@ -57,7 +56,7 @@ export default function CalcRuleModal({ pair, open, onClose }: CalcRuleModalProp
       destroyOnHidden
     >
       <Paragraph type="secondary">
-        基础数据取自{RATE_SOURCE_LABEL[pair.quoteSource]}最近 7 个交易日（{history[0]?.date} 至 {history[history.length - 1]?.date}）。
+        基础数据取自{RATE_SOURCE_LABEL[quote.quoteSource]}截至 {quote.quoteDate} 的最近 7 个交易日（{quoteWindowLabel(history)}）。
       </Paragraph>
       <Table
         rowKey="date"
@@ -67,10 +66,10 @@ export default function CalcRuleModal({ pair, open, onClose }: CalcRuleModalProp
         style={{ marginBottom: 16 }}
       />
       <Descriptions column={2} size="small" bordered>
-        <Descriptions.Item label="最近7日平均汇率">{formatRate(pair.avg7, 4)}</Descriptions.Item>
-        <Descriptions.Item label="综合缓冲因子">{formatPercent(pair.combinedBuffer)}</Descriptions.Item>
-        <Descriptions.Item label="基准货币报价">{pair.quoteCcy1}（{pair.currency1}）</Descriptions.Item>
-        <Descriptions.Item label="计价货币报价">{pair.quoteCcy2}（{pair.currency2}）</Descriptions.Item>
+        <Descriptions.Item label="最近7日平均汇率">{formatRate(quote.avg7, 4)}</Descriptions.Item>
+        <Descriptions.Item label="综合缓冲因子">{formatPercent(quote.combinedBuffer)}</Descriptions.Item>
+        <Descriptions.Item label="基准货币报价">{quote.quoteCcy1}（{quote.currency1}）</Descriptions.Item>
+        <Descriptions.Item label="计价货币报价">{quote.quoteCcy2}（{quote.currency2}）</Descriptions.Item>
       </Descriptions>
     </Modal>
   );
