@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Avatar, Layout, Menu, Tag, Typography, theme } from 'antd';
 import { LineChartOutlined, UserOutlined } from '@ant-design/icons';
-import { APP_VERSION, APP_VERSION_DATE, SYSTEM_NAME } from '@/constants';
+import { APP_VERSION, APP_VERSION_DATE, CURRENT_OPERATOR, CURRENT_OPERATOR_ROLE, SYSTEM_NAME } from '@/constants';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -67,8 +67,8 @@ export default function MainLayout() {
           <div className="app-user">
             <Avatar icon={<UserOutlined />} size={28} style={{ background: token.colorPrimary }} />
             <div className="app-user-meta">
-              <span className="name">张财务</span>
-              <span className="role">财务操作员</span>
+              <span className="name">{CURRENT_OPERATOR}</span>
+              <span className="role">{CURRENT_OPERATOR_ROLE}</span>
             </div>
           </div>
         </Header>

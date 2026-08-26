@@ -1,26 +1,14 @@
 import { useMemo, useState } from 'react';
-import {
-  App,
-  Button,
-  Card,
-  DatePicker,
-  Form,
-  Select,
-  Space,
-  Table,
-  Tooltip,
-  Typography,
-} from 'antd';
-import { ReloadOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons';
+import { Button, Card, DatePicker, Form, Select, Space, Table, Tooltip, Typography } from 'antd';
+import { SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { Dayjs } from 'dayjs';
 import { RATE_SOURCE_LABEL } from '@/constants';
 import HistoryDrawer from '@/components/HistoryDrawer';
-import ManualSyncModal from '@/components/ManualSyncModal';
-import { SourceTag, SyncStatusTag, WarningTag } from '@/components/StatusTags';
+import { SourceTag, WarningTag } from '@/components/StatusTags';
 import { useRateStore } from '@/store/RateStore';
-import { RATE_SOURCE_IDS, type DateRange, type RateDailyRow, type RateSource, type SyncStatus } from '@/types';
-import { formatDateTime, formatSyncRange } from '@/utils/date';
+import { RATE_SOURCE_IDS, type RateDailyRow, type RateSource } from '@/types';
+import { formatDateTime } from '@/utils/date';
 import { formatRate, formatSignedPercent } from '@/utils/rateCalc';
 
 const { Title } = Typography;
@@ -29,7 +17,6 @@ interface Filters {
   pair?: string;
   source?: RateSource;
   dataDate?: string;
-  syncStatus?: SyncStatus;
 }
 
 function RateCell({ value }: { value: string }) {
@@ -43,52 +30,33 @@ function ChangePctCell({ ratio }: { ratio: string | null }) {
 }
 
 export default function RateDataPage() {
-  const { message } = App.useApp();
-  const {
-    pairs,
-    dailyRows,
-    sourceSync,
-    syncing,
-    syncAll,
-  } = useRateStore();
+  const { pairs, dailyRows, sourceSync } = useRateStore();
   const [form] = Form.useForm();
   const [filters, setFilters] = useState<Filters>({});
   const [historyRow, setHistoryRow] = useState<RateDailyRow | null>(null);
-  const [syncOpen, setSyncOpen] = useState(false);
 
   const filtered = useMemo(() => {
     return dailyRows.filter((item) => {
       if (filters.pair && item.pair !== filters.pair) return false;
       if (filters.source && item.source !== filters.source) return false;
       if (filters.dataDate && item.dataDate !== filters.dataDate) return false;
-      if (filters.syncStatus && item.syncStatus !== filters.syncStatus) return false;
       return true;
     });
   }, [dailyRows, filters]);
 
-  const handleSync = async (range: DateRange, sources: RateSource[]) => {
-    const result = await syncAll(range, sources);
-    if (result.ok) {
-      setSyncOpen(false);
-      message.success('同步成功');
-    } else {
-      message.error(result.error || '同步失败');
-    }
-  };
+  const lastSyncItems = RATE_SOURCE_IDS.map((source) => {
+    const state = sourceSync[source];
+    return { source, time: formatDateTime(state.lastSyncAt) };
+  });
 
   const columns: ColumnsType<RateDailyRow> = [
-    { title: '货币对', dataIndex: 'pairLabel', width: 100 },
-    { title: '数据日期', dataIndex: 'dataDate', width: 112 },
+    { title: '货币对', dataIndex: 'pairLabel', width: 104 },
+    { title: '数据日期', dataIndex: 'dataDate', width: 120 },
     {
       title: '数据来源',
-      key: 'source',
-      width: 176,
-      render: (_, record) => (
-        <Space size={6} wrap={false}>
-          <SourceTag source={record.source} />
-          <span className="source-code">{record.sourceCode}</span>
-        </Space>
-      ),
+      dataIndex: 'source',
+      width: 112,
+      render: (source: RateSource) => <SourceTag source={source} />,
     },
     {
       title: <Tooltip title="Open">开盘</Tooltip>,
@@ -124,17 +92,11 @@ export default function RateDataPage() {
       align: 'right',
       width: 176,
       render: (value: string | null, record) => (
-        <Space size={6} wrap={false}>
-          <ChangePctCell ratio={value} />
+        <span className="change-cell">
           {record.hasVolatilityWarning ? <WarningTag /> : null}
-        </Space>
+          <ChangePctCell ratio={value} />
+        </span>
       ),
-    },
-    {
-      title: '同步状态',
-      dataIndex: 'syncStatus',
-      width: 88,
-      render: (status: SyncStatus) => <SyncStatusTag status={status} />,
     },
     {
       title: '操作',
@@ -157,34 +119,12 @@ export default function RateDataPage() {
       <Card className="page-card" variant="outlined">
         <div className="meta-strip">
           <div className="meta-stats">
-            <div className="meta-stat">
-              <span className="k">Reuters</span>
-              <span className="v">
-                <SyncStatusTag status={syncing && sourceSync.reuters.lastSyncStatus === '同步中' ? '同步中' : sourceSync.reuters.lastSyncStatus} />
-                <span style={{ marginLeft: 8 }}>{formatDateTime(sourceSync.reuters.lastSyncAt)}</span>
-              </span>
-            </div>
-            <div className="meta-stat">
-              <span className="k">英为财经</span>
-              <span className="v">
-                <SyncStatusTag status={syncing && sourceSync.investing.lastSyncStatus === '同步中' ? '同步中' : sourceSync.investing.lastSyncStatus} />
-                <span style={{ marginLeft: 8 }}>{formatDateTime(sourceSync.investing.lastSyncAt)}</span>
-              </span>
-            </div>
-            <div className="meta-stat">
-              <span className="k">最近同步时间段</span>
-              <span className="v">{formatSyncRange(sourceSync.reuters.lastSyncRange?.start, sourceSync.reuters.lastSyncRange?.end)}</span>
-            </div>
-          </div>
-          <div className="meta-actions">
-            <Button
-              type="primary"
-              icon={syncing ? <SyncOutlined spin /> : <ReloadOutlined />}
-              loading={syncing}
-              onClick={() => setSyncOpen(true)}
-            >
-              手动同步
-            </Button>
+            {lastSyncItems.map((item) => (
+              <div className="meta-stat" key={item.source}>
+                <span className="k">{RATE_SOURCE_LABEL[item.source]} 最近更新</span>
+                <span className="v">{item.time}</span>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -193,12 +133,11 @@ export default function RateDataPage() {
           form={form}
           layout="inline"
           colon={false}
-          onFinish={(values: { pair?: string; source?: RateSource; dataDate?: Dayjs; syncStatus?: SyncStatus }) => {
+          onFinish={(values: { pair?: string; source?: RateSource; dataDate?: Dayjs }) => {
             setFilters({
               pair: values.pair,
               source: values.source,
               dataDate: values.dataDate?.format('YYYY-MM-DD'),
-              syncStatus: values.syncStatus,
             });
           }}
         >
@@ -214,20 +153,12 @@ export default function RateDataPage() {
             <Select
               allowClear
               placeholder="全部"
-              style={{ width: 132 }}
+              style={{ width: 120 }}
               options={RATE_SOURCE_IDS.map((source) => ({ value: source, label: RATE_SOURCE_LABEL[source] }))}
             />
           </Form.Item>
           <Form.Item name="dataDate" label="数据日期">
             <DatePicker style={{ width: 148 }} />
-          </Form.Item>
-          <Form.Item name="syncStatus" label="同步状态">
-            <Select
-              allowClear
-              placeholder="全部"
-              style={{ width: 120 }}
-              options={['正常', '同步中', '失败'].map((item) => ({ value: item, label: item }))}
-            />
           </Form.Item>
           <Form.Item>
             <Space>
@@ -269,16 +200,6 @@ export default function RateDataPage() {
         source={historyRow?.source}
         history={historyRow?.history ?? []}
         onClose={() => setHistoryRow(null)}
-      />
-      <ManualSyncModal
-        open={syncOpen}
-        loading={syncing}
-        defaultRange={sourceSync.reuters.lastSyncRange ?? sourceSync.investing.lastSyncRange}
-        pairCount={pairs.filter((item) => item.enabled).length}
-        onCancel={() => {
-          if (!syncing) setSyncOpen(false);
-        }}
-        onOk={(range, sources) => void handleSync(range, sources)}
       />
     </div>
   );

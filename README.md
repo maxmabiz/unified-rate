@@ -6,7 +6,7 @@ FUND 资金中台 · 统一汇率管理前端原型（React + TypeScript + Ant D
 
 GitHub Pages：https://maxmabiz.github.io/unified-rate/
 
-当前版本：v0.4.0（2026-08-26）
+当前版本：v0.5.0（2026-08-27）
 
 ## 本地预览
 

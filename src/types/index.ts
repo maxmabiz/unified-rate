@@ -108,6 +108,17 @@ export interface AppSnapshot {
   globalBuffer: BufferConfig;
   pairs: FxPairState[];
   officialQuotes: OfficialQuote[];
+  changeLogs: ConfigChangeLog[];
+}
+
+export interface ConfigChangeLog {
+  id: string;
+  pairId: string;
+  pairLabel: string;
+  action: string;
+  detail: string;
+  changedAt: string;
+  operator: string;
 }
 
 export interface PairConfigInput {

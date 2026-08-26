@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react';
 import { App, Button, Card, Form, Modal, Select, Space, Table, Tooltip, Typography } from 'antd';
-import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import { SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import PairFormModal, { type PairFormValues } from '@/components/PairFormModal';
+import ChangeLogDrawer from '@/components/ChangeLogDrawer';
+import ChangeSourceModal from '@/components/ChangeSourceModal';
 import { EnabledTag, SourceTag } from '@/components/StatusTags';
 import { useRateStore } from '@/store/RateStore';
-import type { EnrichedPair } from '@/types';
+import type { EnrichedPair, RateSource } from '@/types';
 import { formatDateTime } from '@/utils/date';
 import { firstQuoteDate } from '@/utils/officialQuote';
+import { connectedSources } from '@/utils/source';
 
 const { Title, Paragraph } = Typography;
 
@@ -18,14 +20,17 @@ interface Filters {
 
 export default function PairConfigPage() {
   const { message } = App.useApp();
-  const { pairs, officialQuotes, addPair, updatePair, setPairEnabled } = useRateStore();
+  const { pairs, officialQuotes, changeLogs, setQuoteSource, setPairEnabled } = useRateStore();
   const [form] = Form.useForm();
   const [filters, setFilters] = useState<Filters>({});
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingPair, setEditingPair] = useState<EnrichedPair | null>(null);
+  const [changingPair, setChangingPair] = useState<EnrichedPair | null>(null);
   const [disablingPair, setDisablingPair] = useState<EnrichedPair | null>(null);
+  const [logPair, setLogPair] = useState<EnrichedPair | null>(null);
 
-  const enabledCount = pairs.filter((item) => item.enabled).length;
+  const pairLogs = useMemo(
+    () => (logPair ? changeLogs.filter((item) => item.pairId === logPair.id) : []),
+    [changeLogs, logPair],
+  );
 
   const filtered = useMemo(() => {
     return pairs.filter((item) => {
@@ -35,36 +40,15 @@ export default function PairConfigPage() {
     });
   }, [filters, pairs]);
 
-  const openAdd = () => {
-    setEditingPair(null);
-    setModalOpen(true);
-  };
-
-  const openEdit = (pair: EnrichedPair) => {
-    setEditingPair(pair);
-    setModalOpen(true);
-  };
-
-  const handleSubmit = (values: PairFormValues) => {
-    const payload = {
-      currency1: values.currency1,
-      currency2: values.currency2,
-      reutersCode: values.reutersCode ?? '',
-      investingCode: values.investingCode ?? '',
-      reutersConnected: values.reutersConnected,
-      investingConnected: values.investingConnected,
-      quoteSource: values.quoteSource,
-    };
-    const result = editingPair
-      ? updatePair(editingPair.id, payload)
-      : addPair(payload);
+  const handleChangeSource = (source: RateSource) => {
+    if (!changingPair) return;
+    const result = setQuoteSource(changingPair.id, source);
     if (!result.ok) {
       message.error(result.error || '保存失败');
       return;
     }
-    setModalOpen(false);
-    setEditingPair(null);
-    message.success(editingPair ? '已更新货币对配置' : '已新增货币对，并生成模拟行情');
+    setChangingPair(null);
+    message.success(`已更改 ${changingPair.pairLabel} 的报价数据源，下次生成报价时生效`);
   };
 
   const handleToggle = (pair: EnrichedPair, enabled: boolean) => {
@@ -78,21 +62,21 @@ export default function PairConfigPage() {
   };
 
   const columns: ColumnsType<EnrichedPair> = [
-    { title: '货币对', dataIndex: 'pairLabel', width: 112 },
-    { title: '基准货币', dataIndex: 'currency1', width: 100 },
-    { title: '计价货币', dataIndex: 'currency2', width: 100 },
-    { title: 'Reuters代码', dataIndex: ['feeds', 'reuters', 'code'], width: 120 },
-    { title: '英为财经代码', dataIndex: ['feeds', 'investing', 'code'], width: 128 },
+    { title: '货币对', dataIndex: 'pairLabel', width: 96 },
+    { title: '基准货币', dataIndex: 'currency1', width: 88 },
+    { title: '计价货币', dataIndex: 'currency2', width: 88 },
+    { title: 'Reuters代码', dataIndex: ['feeds', 'reuters', 'code'], width: 108 },
+    { title: '英为财经代码', dataIndex: ['feeds', 'investing', 'code'], width: 112 },
     {
       title: '报价数据源',
       dataIndex: 'quoteSource',
-      width: 112,
+      width: 104,
       render: (source: EnrichedPair['quoteSource']) => <SourceTag source={source} />,
     },
     {
       title: '状态',
       dataIndex: 'enabled',
-      width: 96,
+      width: 72,
       render: (enabled: boolean) => <EnabledTag enabled={enabled} />,
     },
     {
@@ -102,35 +86,51 @@ export default function PairConfigPage() {
         </Tooltip>
       ),
       key: 'firstQuoteDate',
-      width: 120,
+      width: 112,
       render: (_, record) => firstQuoteDate(officialQuotes, record.id) ?? '-',
     },
     {
-      title: '最近更新时间',
+      title: '最近修改时间',
       dataIndex: 'configUpdatedAt',
-      width: 176,
+      width: 168,
       render: (value: string) => formatDateTime(value),
     },
     {
       title: '操作',
       key: 'action',
-      width: 148,
-      render: (_, record) => (
-        <Space size={12}>
-          <Button type="link" onClick={() => openEdit(record)}>
-            编辑
-          </Button>
-          {record.enabled ? (
-            <Button type="link" onClick={() => setDisablingPair(record)}>
-              停用
+      width: 188,
+      render: (_, record) => {
+        const canChangeSource = connectedSources(record).length > 1;
+        return (
+          <Space size={8}>
+            {canChangeSource ? (
+              <Button type="link" onClick={() => setChangingPair(record)}>
+                更改数据源
+              </Button>
+            ) : (
+              <Tooltip title="当前仅接入一个数据源，无法更改">
+                <span>
+                  <Button type="link" disabled>
+                    更改数据源
+                  </Button>
+                </span>
+              </Tooltip>
+            )}
+            {record.enabled ? (
+              <Button type="link" onClick={() => setDisablingPair(record)}>
+                停用
+              </Button>
+            ) : (
+              <Button type="link" onClick={() => handleToggle(record, true)}>
+                启用
+              </Button>
+            )}
+            <Button type="link" onClick={() => setLogPair(record)}>
+              日志
             </Button>
-          ) : (
-            <Button type="link" onClick={() => handleToggle(record, true)}>
-              启用
-            </Button>
-          )}
-        </Space>
-      ),
+          </Space>
+        );
+      },
     },
   ];
 
@@ -138,31 +138,12 @@ export default function PairConfigPage() {
     <div className="page-wrap">
       <div className="page-header">
         <Title level={3}>货币对配置</Title>
+        <Paragraph className="page-desc">
+          货币对由技术后台配置。财务可更改报价数据源，并启用或停用。更改数据源后，下次生成报价时生效。
+        </Paragraph>
       </div>
 
       <Card className="page-card" variant="outlined">
-        <div className="meta-strip">
-          <div className="meta-stats">
-            <div className="meta-stat">
-              <span className="k">货币对总数</span>
-              <span className="v">{pairs.length}</span>
-            </div>
-            <div className="meta-stat">
-              <span className="k">启用中</span>
-              <span className="v">{enabledCount}</span>
-            </div>
-            <div className="meta-stat">
-              <span className="k">已停用</span>
-              <span className="v">{pairs.length - enabledCount}</span>
-            </div>
-          </div>
-          <div className="meta-actions">
-            <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>
-              新增货币对
-            </Button>
-          </div>
-        </div>
-
         <Form className="filter-bar" form={form} layout="inline" colon={false} onFinish={setFilters}>
           <Form.Item name="pair" label="货币对">
             <Select
@@ -207,7 +188,7 @@ export default function PairConfigPage() {
           columns={columns}
           dataSource={filtered}
           tableLayout="fixed"
-          scroll={{ x: 1180 }}
+          scroll={{ x: 1136 }}
           pagination={{
             pageSize: 10,
             showTotal: (total) => `共 ${total} 条`,
@@ -217,14 +198,17 @@ export default function PairConfigPage() {
         />
       </Card>
 
-      <PairFormModal
-        open={modalOpen}
-        pair={editingPair}
-        onCancel={() => {
-          setModalOpen(false);
-          setEditingPair(null);
-        }}
-        onSubmit={handleSubmit}
+      <ChangeSourceModal
+        open={!!changingPair}
+        pair={changingPair}
+        onCancel={() => setChangingPair(null)}
+        onSubmit={handleChangeSource}
+      />
+      <ChangeLogDrawer
+        pairLabel={logPair?.pairLabel}
+        logs={pairLogs}
+        open={!!logPair}
+        onClose={() => setLogPair(null)}
       />
       <Modal
         title={disablingPair ? `停用 ${disablingPair.pairLabel}？` : '停用货币对？'}

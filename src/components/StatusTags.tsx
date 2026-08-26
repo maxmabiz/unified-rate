@@ -1,16 +1,6 @@
 import { Tag } from 'antd';
 import { RATE_SOURCE_LABEL } from '@/constants';
-import type { RateSource, SyncStatus } from '@/types';
-
-const SYNC_COLOR: Record<SyncStatus, string> = {
-  正常: 'success',
-  同步中: 'processing',
-  失败: 'error',
-};
-
-export function SyncStatusTag({ status }: { status: SyncStatus }) {
-  return <Tag color={SYNC_COLOR[status]}>{status}</Tag>;
-}
+import type { RateSource } from '@/types';
 
 export function WarningTag() {
   return <Tag color="warning">波动预警</Tag>;

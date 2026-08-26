@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import dayjs from 'dayjs';
-import { HISTORY_CALENDAR_DAYS, HISTORY_SEED_DAYS } from '@/constants';
+import { CURRENT_OPERATOR, HISTORY_CALENDAR_DAYS, HISTORY_SEED_DAYS } from '@/constants';
 import type {
   AppSnapshot,
   BufferConfig,
+  ConfigChangeLog,
   DateRange,
   EnrichedPair,
   FxPairState,
@@ -14,15 +15,7 @@ import type {
   SourceFeed,
 } from '@/types';
 import { RATE_SOURCE_IDS } from '@/types';
-import {
-  createInitialSnapshot,
-  createConfiguredPair,
-  emptyFeed,
-  feedFromHistory,
-  mockBarForDate,
-  shiftBarsForInvesting,
-  buildPairMarketHistory,
-} from '@/mock/seed';
+import { createInitialSnapshot, createConfiguredPair, mockBarForDate } from '@/mock/seed';
 import { calendarDaysInRange, lastNCalendarDays, nowText, tradingBars } from '@/utils/date';
 import { openQuoteDate, rebuildOpenDayQuotes } from '@/utils/officialQuote';
 import {
@@ -31,7 +24,8 @@ import {
   computeQuotes,
   tradingDayChangeRatio,
 } from '@/utils/rateCalc';
-import { quoteFeed } from '@/utils/source';
+import { buildChangeLog, pairStatusChangeAction, pairStatusChangeDetail } from '@/utils/changeLog';
+import { quoteFeed, quoteSourceChangeDetail } from '@/utils/source';
 
 interface RateStoreValue {
   sourceSync: AppSnapshot['sourceSync'];
@@ -39,6 +33,7 @@ interface RateStoreValue {
   globalBuffer: BufferConfig;
   pairs: EnrichedPair[];
   officialQuotes: OfficialQuote[];
+  changeLogs: ConfigChangeLog[];
   unlockedQuoteDate?: string;
   dailyRows: RateDailyRow[];
   syncing: boolean;
@@ -48,7 +43,7 @@ interface RateStoreValue {
   saveGlobalBuffer: (config: BufferConfig) => void;
   savePairBuffer: (id: string, config: BufferConfig) => void;
   addPair: (input: PairConfigInput) => { ok: boolean; error?: string };
-  updatePair: (id: string, input: Omit<PairConfigInput, 'currency1' | 'currency2'>) => { ok: boolean; error?: string };
+  setQuoteSource: (id: string, source: RateSource) => { ok: boolean; error?: string };
   setPairEnabled: (id: string, enabled: boolean) => { ok: boolean; error?: string };
 }
 
@@ -159,34 +154,6 @@ function validatePairConfig(input: {
     return { ok: false, error: '报价数据源必须是已接入的数据源' };
   }
   return { ok: true };
-}
-
-function hydrateFeed(
-  current: SourceFeed | undefined,
-  code: string,
-  connected: boolean,
-  source: RateSource,
-  currency1: string,
-  currency2: string,
-): SourceFeed {
-  const trimmed = code.trim();
-  if (!connected) {
-    return {
-      ...(current ?? emptyFeed(trimmed)),
-      code: trimmed,
-      connected: false,
-    };
-  }
-  if (current?.history.length) {
-    return {
-      ...current,
-      code: trimmed,
-      connected: true,
-    };
-  }
-  const market = buildPairMarketHistory(currency1, currency2);
-  const history = source === 'investing' ? shiftBarsForInvesting(market) : market;
-  return feedFromHistory(trimmed, history, true);
 }
 
 const syncFailCount: Record<RateSource, number> = {
@@ -376,7 +343,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
 
     const id = `${currency1}${currency2}`;
     const exists = snapshot.pairs.some((pair) => pair.id === id);
-    if (exists) return { ok: false, error: '该货币对已存在，可直接启用或编辑' };
+    if (exists) return { ok: false, error: '该货币对已存在，可直接启用' };
 
     const reutersCode = input.reutersCode.trim();
     const investingCode = input.investingCode.trim();
@@ -415,65 +382,34 @@ export function RateProvider({ children }: { children: ReactNode }) {
     return { ok: true };
   }, [snapshot.pairs]);
 
-  const updatePair = useCallback((id: string, input: Omit<PairConfigInput, 'currency1' | 'currency2'>) => {
+  const setQuoteSource = useCallback((id: string, source: RateSource) => {
     const target = snapshot.pairs.find((pair) => pair.id === id);
     if (!target) return { ok: false, error: '货币对不存在' };
-
-    const checked = validatePairConfig(input);
-    if (!checked.ok) return checked;
-
-    const reutersCode = input.reutersCode.trim();
-    const investingCode = input.investingCode.trim();
-    if (
-      input.reutersConnected &&
-      snapshot.pairs.some((pair) => pair.id !== id && pair.feeds.reuters.code === reutersCode)
-    ) {
-      return { ok: false, error: 'Reuters 代码已被其他货币对使用' };
+    if (!target.feeds[source].connected) {
+      return { ok: false, error: '请选择已接入的数据源' };
     }
-    if (
-      input.investingConnected &&
-      snapshot.pairs.some((pair) => pair.id !== id && pair.feeds.investing.code === investingCode)
-    ) {
-      return { ok: false, error: '英为财经代码已被其他货币对使用' };
+    if (target.quoteSource === source) {
+      return { ok: false, error: '报价数据源未变化' };
     }
 
     setSnapshot((prev) => {
-      const nextPairs = prev.pairs.map((pair) =>
-        pair.id === id
-          ? {
-              ...pair,
-              quoteSource: input.quoteSource,
-              configUpdatedAt: nowText(),
-              feeds: {
-                reuters: hydrateFeed(
-                  pair.feeds.reuters,
-                  reutersCode,
-                  input.reutersConnected,
-                  'reuters',
-                  pair.currency1,
-                  pair.currency2,
-                ),
-                investing: hydrateFeed(
-                  pair.feeds.investing,
-                  investingCode,
-                  input.investingConnected,
-                  'investing',
-                  pair.currency1,
-                  pair.currency2,
-                ),
-              },
-            }
-          : pair,
-      );
-      const next = nextPairs.find((pair) => pair.id === id);
-      const calculatedAt = nowText();
+      const pair = prev.pairs.find((item) => item.id === id);
+      if (!pair || pair.quoteSource === source || !pair.feeds[source].connected) return prev;
+      const changedAt = nowText();
+      const log = buildChangeLog({
+        pairId: id,
+        pairLabel: pair.pairLabel,
+        action: '更改数据源',
+        detail: quoteSourceChangeDetail(pair.quoteSource, source),
+        changedAt,
+        operator: CURRENT_OPERATOR,
+      });
       return {
         ...prev,
-        lastCalculatedAt: next?.enabled ? calculatedAt : prev.lastCalculatedAt,
-        pairs: nextPairs,
-        officialQuotes: next?.enabled
-          ? rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, [id])
-          : prev.officialQuotes,
+        pairs: prev.pairs.map((item) =>
+          item.id === id ? { ...item, quoteSource: source, configUpdatedAt: changedAt } : item,
+        ),
+        changeLogs: [log, ...prev.changeLogs],
       };
     });
     return { ok: true };
@@ -482,14 +418,23 @@ export function RateProvider({ children }: { children: ReactNode }) {
   const setPairEnabled = useCallback((id: string, enabled: boolean) => {
     const target = snapshot.pairs.find((pair) => pair.id === id);
     if (!target) return { ok: false, error: '货币对不存在' };
+    if (target.enabled === enabled) return { ok: true };
 
     setSnapshot((prev) => {
+      const pair = prev.pairs.find((item) => item.id === id);
+      if (!pair || pair.enabled === enabled) return prev;
       const calculatedAt = nowText();
-      const nextPairs = prev.pairs.map((pair) =>
-        pair.id === id
-          ? { ...pair, enabled, configUpdatedAt: calculatedAt }
-          : pair,
+      const nextPairs = prev.pairs.map((item) =>
+        item.id === id ? { ...item, enabled, configUpdatedAt: calculatedAt } : item,
       );
+      const log = buildChangeLog({
+        pairId: id,
+        pairLabel: pair.pairLabel,
+        action: pairStatusChangeAction(enabled),
+        detail: pairStatusChangeDetail(enabled),
+        changedAt: calculatedAt,
+        operator: CURRENT_OPERATOR,
+      });
       return {
         ...prev,
         lastCalculatedAt: enabled ? calculatedAt : prev.lastCalculatedAt,
@@ -497,6 +442,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
         officialQuotes: enabled
           ? rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, [id])
           : prev.officialQuotes,
+        changeLogs: [log, ...prev.changeLogs],
       };
     });
     return { ok: true };
@@ -511,6 +457,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
       globalBuffer: snapshot.globalBuffer,
       pairs,
       officialQuotes: snapshot.officialQuotes,
+      changeLogs: snapshot.changeLogs,
       unlockedQuoteDate,
       dailyRows,
       syncing,
@@ -520,7 +467,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
       saveGlobalBuffer,
       savePairBuffer,
       addPair,
-      updatePair,
+      setQuoteSource,
       setPairEnabled,
     }),
     [
@@ -528,6 +475,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
       snapshot.lastCalculatedAt,
       snapshot.globalBuffer,
       snapshot.officialQuotes,
+      snapshot.changeLogs,
       unlockedQuoteDate,
       pairs,
       dailyRows,
@@ -538,7 +486,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
       saveGlobalBuffer,
       savePairBuffer,
       addPair,
-      updatePair,
+      setQuoteSource,
       setPairEnabled,
     ],
   );

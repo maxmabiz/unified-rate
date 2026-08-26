@@ -138,6 +138,10 @@ body {
   width: 100%;
 }
 
+.page-card + .page-card {
+  margin-top: 16px;
+}
+
 .page-card .ant-card-body {
   padding: 16px 20px 8px;
 }
@@ -190,6 +194,7 @@ body {
   font-weight: 500;
   color: rgba(0, 0, 0, 0.88);
   line-height: 20px;
+  font-variant-numeric: tabular-nums;
 }
 
 .meta-stat .ant-tag {
@@ -245,7 +250,6 @@ body {
 }
 
 .rate-data-table.compact-table table {
-  width: 100% !important;
   table-layout: fixed !important;
 }
 
@@ -259,13 +263,15 @@ body {
   overflow: hidden;
 }
 
-.rate-data-table .source-code {
-  color: rgba(0, 0, 0, 0.45);
-  font-size: 12px;
-}
-
 .rate-data-table .ant-tag {
   margin-inline-end: 0;
+}
+
+.change-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .compact-table .ant-table-tbody > tr:hover > td {

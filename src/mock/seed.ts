@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
-import type { DailyBar, FxPairState, AppSnapshot, BufferConfig, RateSource, SourceFeed } from '@/types';
+import type { DailyBar, FxPairState, AppSnapshot, BufferConfig, ConfigChangeLog, RateSource, SourceFeed } from '@/types';
 import {
+  CURRENT_OPERATOR,
   DEFAULT_FEE,
   DEFAULT_VOLATILITY_BUFFER,
   HISTORY_CALENDAR_DAYS,
@@ -17,6 +18,8 @@ import { EXCEL_OHLC, type ExcelPair, type OhlcQuote } from '@/mock/excelBars';
 import { isTradingDay, lastNCalendarDays, lastNTradingDays } from '@/utils/date';
 import { seedOfficialQuotes } from '@/utils/officialQuote';
 import { previousTradingClose } from '@/utils/rateCalc';
+import { buildChangeLog, pairStatusChangeDetail, sortChangeLogs } from '@/utils/changeLog';
+import { quoteSourceChangeDetail } from '@/utils/source';
 
 export interface PairSeed {
   currency1: string;
@@ -302,6 +305,91 @@ function toPairState(seed: PairSeed, buffer: BufferConfig): FxPairState {
   );
 }
 
+export function seedChangeLogs(): ConfigChangeLog[] {
+  return sortChangeLogs([
+    buildChangeLog({
+      pairId: 'USDCNY',
+      pairLabel: 'USD/CNY',
+      action: '更改数据源',
+      detail: quoteSourceChangeDetail('investing', 'reuters'),
+      changedAt: '2026-08-15 14:32:08',
+      operator: CURRENT_OPERATOR,
+    }),
+    buildChangeLog({
+      pairId: 'USDCNY',
+      pairLabel: 'USD/CNY',
+      action: '启用',
+      detail: pairStatusChangeDetail(true),
+      changedAt: '2026-08-12 10:18:22',
+      operator: '李财务',
+    }),
+    buildChangeLog({
+      pairId: 'USDCNY',
+      pairLabel: 'USD/CNY',
+      action: '停用',
+      detail: pairStatusChangeDetail(false),
+      changedAt: '2026-08-11 16:05:40',
+      operator: '李财务',
+    }),
+    buildChangeLog({
+      pairId: 'EURUSD',
+      pairLabel: 'EUR/USD',
+      action: '更改数据源',
+      detail: quoteSourceChangeDetail('investing', 'reuters'),
+      changedAt: '2026-08-17 08:12:00',
+      operator: CURRENT_OPERATOR,
+    }),
+    buildChangeLog({
+      pairId: 'EURUSD',
+      pairLabel: 'EUR/USD',
+      action: '更改数据源',
+      detail: quoteSourceChangeDetail('reuters', 'investing'),
+      changedAt: '2026-08-14 16:40:21',
+      operator: CURRENT_OPERATOR,
+    }),
+    buildChangeLog({
+      pairId: 'GBPCNY',
+      pairLabel: 'GBP/CNY',
+      action: '启用',
+      detail: pairStatusChangeDetail(true),
+      changedAt: '2026-08-11 09:06:14',
+      operator: CURRENT_OPERATOR,
+    }),
+    buildChangeLog({
+      pairId: 'GBPCNY',
+      pairLabel: 'GBP/CNY',
+      action: '停用',
+      detail: pairStatusChangeDetail(false),
+      changedAt: '2026-08-10 11:20:03',
+      operator: '李财务',
+    }),
+    buildChangeLog({
+      pairId: 'USDHKD',
+      pairLabel: 'USD/HKD',
+      action: '启用',
+      detail: pairStatusChangeDetail(true),
+      changedAt: '2026-08-13 15:40:18',
+      operator: CURRENT_OPERATOR,
+    }),
+    buildChangeLog({
+      pairId: 'USDHKD',
+      pairLabel: 'USD/HKD',
+      action: '停用',
+      detail: pairStatusChangeDetail(false),
+      changedAt: '2026-08-13 15:22:51',
+      operator: CURRENT_OPERATOR,
+    }),
+    buildChangeLog({
+      pairId: 'EURCNY',
+      pairLabel: 'EUR/CNY',
+      action: '更改数据源',
+      detail: quoteSourceChangeDetail('investing', 'reuters'),
+      changedAt: '2026-08-16 09:20:11',
+      operator: '李财务',
+    }),
+  ]);
+}
+
 export function createInitialSnapshot(): AppSnapshot {
   const globalBuffer: BufferConfig = {
     volatilityBuffer: DEFAULT_VOLATILITY_BUFFER,
@@ -330,5 +418,6 @@ export function createInitialSnapshot(): AppSnapshot {
     globalBuffer,
     pairs,
     officialQuotes: seedOfficialQuotes(pairs),
+    changeLogs: seedChangeLogs(),
   };
 }

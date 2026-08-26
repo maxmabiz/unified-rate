@@ -8,7 +8,7 @@ import BufferConfigModal from '@/components/BufferConfigModal';
 import CalcRuleModal from '@/components/CalcRuleModal';
 import { EffectiveTag, LockedTag, SourceTag } from '@/components/StatusTags';
 import { useRateStore } from '@/store/RateStore';
-import type { BufferConfig, EnrichedPair, OfficialQuote } from '@/types';
+import type { BufferConfig, OfficialQuote } from '@/types';
 import { formatDateTime } from '@/utils/date';
 import { isQuoteLocked, latestQuoteDate, quoteWindowLabel } from '@/utils/officialQuote';
 import { combinedBufferOf, formatPercent, formatRate } from '@/utils/rateCalc';
@@ -33,13 +33,11 @@ export default function BusinessRatesPage() {
     calculating,
     recalculate,
     saveGlobalBuffer,
-    savePairBuffer,
   } = useRateStore();
   const [form] = Form.useForm();
   const [filters, setFilters] = useState<Filters>({});
   const [bufferOpen, setBufferOpen] = useState(false);
   const [recalcOpen, setRecalcOpen] = useState(false);
-  const [editingPair, setEditingPair] = useState<EnrichedPair | null>(null);
   const [ruleQuote, setRuleQuote] = useState<OfficialQuote | null>(null);
 
   const quotePairs = useMemo(() => pairs.filter((item) => item.enabled), [pairs]);
@@ -94,17 +92,6 @@ export default function BusinessRatesPage() {
       latestDate
         ? `保存成功，已按新的综合缓冲因子重算 ${latestDate} 全部已启用货币对`
         : '保存成功，已按新的综合缓冲因子重新计算全部业务报价汇率',
-    );
-  };
-
-  const handleSavePair = (config: BufferConfig) => {
-    if (!editingPair) return;
-    savePairBuffer(editingPair.id, config);
-    setEditingPair(null);
-    message.success(
-      latestDate
-        ? `保存成功，已重新计算 ${editingPair.pairLabel} 在 ${latestDate} 的业务报价汇率`
-        : '保存成功，已重新计算该货币对的业务报价汇率',
     );
   };
 
@@ -191,23 +178,12 @@ export default function BusinessRatesPage() {
     {
       title: '操作',
       key: 'action',
-      width: 168,
-      render: (_, record) => {
-        const locked = isQuoteLocked(record.quoteDate, unlockedQuoteDate);
-        const pair = pairById.get(record.pairId);
-        return (
-          <Space size={12}>
-            <Button type="link" onClick={() => setRuleQuote(record)}>
-              计算规则
-            </Button>
-            {locked || !pair ? null : (
-              <Button type="link" onClick={() => setEditingPair(pair)}>
-                缓冲因子
-              </Button>
-            )}
-          </Space>
-        );
-      },
+      width: 96,
+      render: (_, record) => (
+        <Button type="link" onClick={() => setRuleQuote(record)}>
+          计算规则
+        </Button>
+      ),
     },
   ];
 
@@ -324,7 +300,7 @@ export default function BusinessRatesPage() {
           columns={columns}
           dataSource={filtered}
           tableLayout="fixed"
-          scroll={{ x: 1180 }}
+          scroll={{ x: 1108 }}
           pagination={{
             pageSize: 10,
             showTotal: (total) => `共 ${total} 条`,
@@ -340,18 +316,6 @@ export default function BusinessRatesPage() {
         initial={globalBuffer}
         onCancel={() => setBufferOpen(false)}
         onSave={handleSaveGlobal}
-      />
-      <BufferConfigModal
-        open={!!editingPair}
-        pair={editingPair}
-        pairs={quotePairs}
-        initial={
-          editingPair
-            ? { volatilityBuffer: editingPair.volatilityBuffer, fee: editingPair.fee }
-            : globalBuffer
-        }
-        onCancel={() => setEditingPair(null)}
-        onSave={handleSavePair}
       />
       <Modal
         title="重新计算当前报价日？"

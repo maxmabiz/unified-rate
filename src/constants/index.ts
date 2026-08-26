@@ -1,6 +1,9 @@
 export const SYSTEM_NAME = '统一汇率';
-export const APP_VERSION = '0.4.0';
-export const APP_VERSION_DATE = '2026-08-26';
+export const APP_VERSION = '0.5.0';
+export const APP_VERSION_DATE = '2026-08-27';
+
+export const CURRENT_OPERATOR = '张财务';
+export const CURRENT_OPERATOR_ROLE = '财务操作员';
 
 export const RATE_SOURCE_LABEL = {
   reuters: 'Reuters',
