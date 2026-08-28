@@ -22,3 +22,15 @@ export function LockedTag() {
   return <Tag>已锁定</Tag>;
 }
 
+export function CustomBufferTag({ onClick }: { onClick?: () => void }) {
+  return (
+    <Tag
+      color="processing"
+      className={onClick ? 'buffer-custom-tag is-clickable' : 'buffer-custom-tag'}
+      onClick={onClick}
+    >
+      修改
+    </Tag>
+  );
+}
+

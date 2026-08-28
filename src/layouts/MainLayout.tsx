@@ -15,13 +15,19 @@ export default function MainLayout() {
 
   const menuItems = [
     {
-      key: 'unified-rate',
+      key: 'fund-platform',
       icon: <LineChartOutlined />,
-      label: SYSTEM_NAME,
+      label: '资金中台',
       children: [
-        { key: '/pairs', label: '货币对配置' },
-        { key: '/data', label: '汇率数据' },
-        { key: '/business-rates', label: '业务报价汇率' },
+        {
+          key: 'rate-mgmt',
+          label: '履约汇率管理',
+          children: [
+            { key: '/pairs', label: '货币对配置' },
+            { key: '/data', label: '汇率数据' },
+            { key: '/business-rates', label: '履约报价汇率' },
+          ],
+        },
       ],
     },
   ];
@@ -44,7 +50,7 @@ export default function MainLayout() {
           theme="dark"
           mode="inline"
           selectedKeys={[location.pathname]}
-          defaultOpenKeys={['unified-rate']}
+          defaultOpenKeys={['fund-platform', 'rate-mgmt']}
           items={menuItems}
           onClick={({ key }) => {
             if (key.startsWith('/')) navigate(key);
@@ -56,7 +62,7 @@ export default function MainLayout() {
           <div className="app-header-title">
             <Text strong>资金中台</Text>
             <span className="app-header-divider" />
-            <Text type="secondary">统一汇率管理</Text>
+            <Text type="secondary">履约汇率管理</Text>
             <Tag className="app-version" bordered={false} color="blue">
               v{APP_VERSION}
             </Tag>

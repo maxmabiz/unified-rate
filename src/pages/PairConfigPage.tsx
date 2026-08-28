@@ -222,7 +222,7 @@ export default function PairConfigPage() {
         okButtonProps={{ danger: true }}
         destroyOnHidden
       >
-        <Paragraph>停用后不再出现在当天业务报价中。</Paragraph>
+        <Paragraph>停用后不再出现在当天履约报价中。</Paragraph>
         <Paragraph type="secondary" style={{ marginBottom: 0 }}>
           已存档的历史报价和已同步行情仍可查阅，不会删除。
         </Paragraph>

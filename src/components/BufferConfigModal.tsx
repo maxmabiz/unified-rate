@@ -1,20 +1,21 @@
 import { useEffect, useMemo } from 'react';
-import { Form, InputNumber, Modal, Table, Typography } from 'antd';
+import { Alert, Button, Form, InputNumber, Modal, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import type { BufferConfig, EnrichedPair } from '@/types';
+import type { BufferConfig, OfficialQuote } from '@/types';
+import { isCustomDayQuote } from '@/utils/buffer';
 import { computeQuotes, formatRate, fractionToPercentNumber, percentToFraction } from '@/utils/rateCalc';
-import { tradingBars } from '@/utils/date';
-import { quoteHistory } from '@/utils/source';
 
 const { Text } = Typography;
 
 interface BufferConfigModalProps {
   open: boolean;
-  pair?: EnrichedPair | null;
-  pairs: EnrichedPair[];
+  quote?: OfficialQuote | null;
+  previewQuotes: OfficialQuote[];
   initial: BufferConfig;
+  exceptionCount?: number;
   onCancel: () => void;
   onSave: (config: BufferConfig) => void;
+  onRestore?: () => void;
 }
 
 interface PreviewRow {
@@ -29,11 +30,13 @@ interface PreviewRow {
 
 export default function BufferConfigModal({
   open,
-  pair,
-  pairs,
+  quote,
+  previewQuotes,
   initial,
+  exceptionCount = 0,
   onCancel,
   onSave,
+  onRestore,
 }: BufferConfigModalProps) {
   const [form] = Form.useForm<{ volatility: number; fee: number }>();
   const volatility = Form.useWatch('volatility', form) ?? fractionToPercentNumber(initial.volatilityBuffer);
@@ -53,11 +56,11 @@ export default function BufferConfigModal({
     fee: percentToFraction(fee ?? 0),
   };
 
-  const previewPairs = pair ? [pair] : pairs;
+  const sourceQuotes = quote ? [quote] : previewQuotes;
 
   const previewRows = useMemo<PreviewRow[]>(() => {
-    return previewPairs.map((item) => {
-      const after = computeQuotes(tradingBars(quoteHistory(item)), nextConfig);
+    return sourceQuotes.map((item) => {
+      const after = computeQuotes(item.history, nextConfig);
       return {
         key: item.id,
         pair: item.pairLabel,
@@ -68,7 +71,7 @@ export default function BufferConfigModal({
         after2: after.quoteCcy2,
       };
     });
-  }, [nextConfig.fee, nextConfig.volatilityBuffer, previewPairs]);
+  }, [nextConfig.fee, nextConfig.volatilityBuffer, sourceQuotes]);
 
   const columns: ColumnsType<PreviewRow> = [
     { title: '货币对', dataIndex: 'pair', width: 110 },
@@ -92,18 +95,60 @@ export default function BufferConfigModal({
     },
   ];
 
+  const canRestore = Boolean(quote && isCustomDayQuote(quote) && onRestore);
+
   return (
     <Modal
-      title={pair ? `修改缓冲因子 · ${pair.pairLabel}` : '缓冲因子配置'}
+      title={quote ? `调整当日缓冲 · ${quote.pairLabel} · ${quote.quoteDate}` : '缓冲因子配置'}
       open={open}
       onCancel={onCancel}
       onOk={() => {
         onSave(nextConfig);
       }}
       okText="保存"
-      width={pair ? 640 : 760}
+      width={quote ? 640 : 760}
       destroyOnHidden
+      footer={
+        quote ? (
+          <div className="buffer-modal-footer">
+            {canRestore ? (
+              <Button onClick={onRestore}>恢复跟随全局</Button>
+            ) : (
+              <span />
+            )}
+            <Space>
+              <Button onClick={onCancel}>取消</Button>
+              <Button type="primary" onClick={() => onSave(nextConfig)}>
+                保存
+              </Button>
+            </Space>
+          </div>
+        ) : undefined
+      }
     >
+      {quote ? (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="只改当天有效报价，锁定后不可改。下一报价日仍按全局默认生成，不会继承本次配置。"
+        />
+      ) : exceptionCount > 0 ? (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`${exceptionCount} 个货币对当天已单独配置。保存后不会立刻重算；点击「重新计算」后只更新跟随全局的报价，不会改动它们。`}
+        />
+      ) : (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="此处为全局默认，保存后不会立刻重算当天报价。请点击页面上的「重新计算」后生效。"
+        />
+      )}
+
       <Form form={form} layout="vertical">
         <Form.Item
           label="汇率波动缓冲"
@@ -128,6 +173,13 @@ export default function BufferConfigModal({
       </Form>
 
       <Text strong>计算预览</Text>
+      {quote ? null : (
+        <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
+          {previewRows.length
+            ? '预览点击「重新计算」后的报价（仅跟随全局的货币对）'
+            : '当前有效日没有跟随全局的货币对，保存后仅更新全局默认'}
+        </Text>
+      )}
       <Table
         rowKey="key"
         pagination={false}

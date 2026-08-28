@@ -1,12 +1,12 @@
-# 统一汇率
+# 履约汇率
 
-FUND 资金中台 · 统一汇率管理前端原型（React + TypeScript + Ant Design）。Mock 数据，不接真实 Reuters。
+FUND 资金中台 · 履约汇率管理前端原型（React + TypeScript + Ant Design）。Mock 数据，不接真实 Reuters。
 
 ## 在线演示
 
 GitHub Pages：https://maxmabiz.github.io/unified-rate/
 
-当前版本：v0.5.0（2026-08-27）
+当前版本：v0.6.0（2026-08-28）
 
 ## 本地预览
 
@@ -25,4 +25,4 @@ npm run dev
 | --- | --- |
 | 货币对配置 | `/pairs` |
 | 汇率数据 | `/data` |
-| 业务报价汇率 | `/business-rates` |
+| 履约报价汇率 | `/business-rates` |

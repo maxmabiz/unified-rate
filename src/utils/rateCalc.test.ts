@@ -16,7 +16,7 @@ import { PAIR_SEEDS, buildHistory } from '@/mock/seed';
 
 const DEFAULT_BUFFER = { volatilityBuffer: '0.04', fee: '0.01' };
 
-describe('业务报价汇率计算', () => {
+describe('履约报价汇率计算', () => {
   it('单日平均汇率 =（最高 + 最低）÷ 2', () => {
     expect(dailyAverage('6.7600', '6.7482').toFixed(4)).toBe('6.7541');
   });

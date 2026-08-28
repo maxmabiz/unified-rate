@@ -274,6 +274,39 @@ body {
   gap: 8px;
 }
 
+.buffer-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.buffer-cell .buffer-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.buffer-cell .buffer-config-link.ant-btn-link {
+  padding-inline: 0;
+  height: auto;
+  font-size: 13px;
+}
+
+.buffer-custom-tag.ant-tag {
+  margin-inline-end: 0;
+}
+
+.buffer-custom-tag.is-clickable {
+  cursor: pointer;
+}
+
+.buffer-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
 .compact-table .ant-table-tbody > tr:hover > td {
   background: #f5f9ff;
 }

@@ -17,7 +17,8 @@ import type {
 import { RATE_SOURCE_IDS } from '@/types';
 import { createInitialSnapshot, createConfiguredPair, mockBarForDate } from '@/mock/seed';
 import { calendarDaysInRange, lastNCalendarDays, nowText, tradingBars } from '@/utils/date';
-import { openQuoteDate, rebuildOpenDayQuotes } from '@/utils/officialQuote';
+import { openQuoteDate, rebuildOpenDayQuotes, buildOfficialQuote, upsertQuote } from '@/utils/officialQuote';
+import { applyGlobalBuffer } from '@/utils/buffer';
 import {
   averageFromHistory,
   barHasVolatilityWarning,
@@ -42,6 +43,7 @@ interface RateStoreValue {
   recalculate: () => void;
   saveGlobalBuffer: (config: BufferConfig) => void;
   savePairBuffer: (id: string, config: BufferConfig) => void;
+  restorePairBuffer: (id: string) => void;
   addPair: (input: PairConfigInput) => { ok: boolean; error?: string };
   setQuoteSource: (id: string, source: RateSource) => { ok: boolean; error?: string };
   setPairEnabled: (id: string, enabled: boolean) => { ok: boolean; error?: string };
@@ -49,12 +51,9 @@ interface RateStoreValue {
 
 const RateStoreContext = createContext<RateStoreValue | null>(null);
 
-function enrich(pair: FxPairState): EnrichedPair {
+function enrich(pair: FxPairState, globalBuffer: BufferConfig): EnrichedPair {
   const feed = quoteFeed(pair);
-  const quotes = computeQuotes(tradingBars(feed.history), {
-    volatilityBuffer: pair.volatilityBuffer,
-    fee: pair.fee,
-  });
+  const quotes = computeQuotes(tradingBars(feed.history), globalBuffer);
   return {
     ...pair,
     ...quotes,
@@ -166,7 +165,10 @@ export function RateProvider({ children }: { children: ReactNode }) {
   const [syncing, setSyncing] = useState(false);
   const [calculating, setCalculating] = useState(false);
 
-  const pairs = useMemo(() => snapshot.pairs.map(enrich), [snapshot.pairs]);
+  const pairs = useMemo(
+    () => snapshot.pairs.map((pair) => enrich(pair, snapshot.globalBuffer)),
+    [snapshot.pairs, snapshot.globalBuffer],
+  );
   const dailyRows = useMemo(() => flattenDailyRows(pairs), [pairs]);
 
   const syncAll = useCallback(async (range: DateRange, sources: RateSource[]) => {
@@ -267,7 +269,14 @@ export function RateProvider({ children }: { children: ReactNode }) {
         },
         pairs: nextPairs,
         officialQuotes: quotePairIds.length
-          ? rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, quotePairIds)
+          ? rebuildOpenDayQuotes(
+              nextPairs,
+              prev.officialQuotes,
+              calculatedAt,
+              quotePairIds,
+              prev.globalBuffer,
+              true,
+            )
           : prev.officialQuotes,
       };
     });
@@ -290,7 +299,14 @@ export function RateProvider({ children }: { children: ReactNode }) {
         return {
           ...prev,
           lastCalculatedAt: calculatedAt,
-          officialQuotes: rebuildOpenDayQuotes(prev.pairs, prev.officialQuotes, calculatedAt),
+          officialQuotes: rebuildOpenDayQuotes(
+            prev.pairs,
+            prev.officialQuotes,
+            calculatedAt,
+            undefined,
+            prev.globalBuffer,
+            true,
+          ),
         };
       });
       setCalculating(false);
@@ -298,36 +314,43 @@ export function RateProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const saveGlobalBuffer = useCallback((config: BufferConfig) => {
-    setSnapshot((prev) => {
-      const calculatedAt = nowText();
-      const nextPairs = prev.pairs.map((pair) => ({
-        ...pair,
-        volatilityBuffer: config.volatilityBuffer,
-        fee: config.fee,
-      }));
-      return {
-        ...prev,
-        globalBuffer: config,
-        lastCalculatedAt: calculatedAt,
-        pairs: nextPairs,
-        officialQuotes: rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt),
-      };
-    });
+    setSnapshot((prev) => ({
+      ...prev,
+      globalBuffer: config,
+      pairs: applyGlobalBuffer(prev.pairs, config),
+    }));
   }, []);
 
   const savePairBuffer = useCallback((id: string, config: BufferConfig) => {
     setSnapshot((prev) => {
+      const unlocked = openQuoteDate(prev.pairs);
+      const pair = prev.pairs.find((item) => item.id === id);
+      if (!unlocked || !pair?.enabled) return prev;
       const calculatedAt = nowText();
-      const nextPairs = prev.pairs.map((pair) =>
-        pair.id === id
-          ? { ...pair, volatilityBuffer: config.volatilityBuffer, fee: config.fee }
-          : pair,
-      );
       return {
         ...prev,
         lastCalculatedAt: calculatedAt,
-        pairs: nextPairs,
-        officialQuotes: rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, [id]),
+        officialQuotes: upsertQuote(
+          prev.officialQuotes,
+          buildOfficialQuote(pair, unlocked, calculatedAt, config, true),
+        ),
+      };
+    });
+  }, []);
+
+  const restorePairBuffer = useCallback((id: string) => {
+    setSnapshot((prev) => {
+      const unlocked = openQuoteDate(prev.pairs);
+      const pair = prev.pairs.find((item) => item.id === id);
+      if (!unlocked || !pair?.enabled) return prev;
+      const calculatedAt = nowText();
+      return {
+        ...prev,
+        lastCalculatedAt: calculatedAt,
+        officialQuotes: upsertQuote(
+          prev.officialQuotes,
+          buildOfficialQuote(pair, unlocked, calculatedAt, prev.globalBuffer, false),
+        ),
       };
     });
   }, []);
@@ -376,7 +399,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
         ...prev,
         lastCalculatedAt: calculatedAt,
         pairs: nextPairs,
-        officialQuotes: rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, [id]),
+        officialQuotes: rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, [id], prev.globalBuffer),
       };
     });
     return { ok: true };
@@ -440,7 +463,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
         lastCalculatedAt: enabled ? calculatedAt : prev.lastCalculatedAt,
         pairs: nextPairs,
         officialQuotes: enabled
-          ? rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, [id])
+          ? rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, [id], prev.globalBuffer)
           : prev.officialQuotes,
         changeLogs: [log, ...prev.changeLogs],
       };
@@ -466,6 +489,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
       recalculate,
       saveGlobalBuffer,
       savePairBuffer,
+      restorePairBuffer,
       addPair,
       setQuoteSource,
       setPairEnabled,
@@ -485,6 +509,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
       recalculate,
       saveGlobalBuffer,
       savePairBuffer,
+      restorePairBuffer,
       addPair,
       setQuoteSource,
       setPairEnabled,

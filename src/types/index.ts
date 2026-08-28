@@ -64,6 +64,8 @@ export interface OfficialQuote {
   quoteCcy2: string;
   calculatedAt: string;
   history: DailyBar[];
+  /** 当天是否单独配置过缓冲；不影响下一报价日 */
+  bufferCustom: boolean;
 }
 
 export interface RateDailyRow {

@@ -6,20 +6,24 @@ import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 import BufferConfigModal from '@/components/BufferConfigModal';
 import CalcRuleModal from '@/components/CalcRuleModal';
-import { EffectiveTag, LockedTag, SourceTag } from '@/components/StatusTags';
+import { CustomBufferTag, EffectiveTag, LockedTag, SourceTag } from '@/components/StatusTags';
 import { useRateStore } from '@/store/RateStore';
 import type { BufferConfig, OfficialQuote } from '@/types';
+import { customDayQuoteCount, isCustomDayQuote } from '@/utils/buffer';
 import { formatDateTime } from '@/utils/date';
 import { isQuoteLocked, latestQuoteDate, quoteWindowLabel } from '@/utils/officialQuote';
 import { combinedBufferOf, formatPercent, formatRate } from '@/utils/rateCalc';
 
 const { Title, Paragraph } = Typography;
 
+type QuoteStatusFilter = 'effective' | 'locked';
+
 interface Filters {
   currency1?: string;
   currency2?: string;
   pair?: string;
   quoteDate?: string;
+  status?: QuoteStatusFilter;
 }
 
 export default function BusinessRatesPage() {
@@ -33,16 +37,20 @@ export default function BusinessRatesPage() {
     calculating,
     recalculate,
     saveGlobalBuffer,
+    savePairBuffer,
+    restorePairBuffer,
   } = useRateStore();
   const [form] = Form.useForm();
   const [filters, setFilters] = useState<Filters>({});
   const [bufferOpen, setBufferOpen] = useState(false);
+  const [bufferQuote, setBufferQuote] = useState<OfficialQuote | null>(null);
   const [recalcOpen, setRecalcOpen] = useState(false);
   const [ruleQuote, setRuleQuote] = useState<OfficialQuote | null>(null);
 
   const quotePairs = useMemo(() => pairs.filter((item) => item.enabled), [pairs]);
   const latestDate = unlockedQuoteDate ?? latestQuoteDate(officialQuotes);
   const enabledCount = quotePairs.length;
+  const openDayExceptionCount = customDayQuoteCount(officialQuotes, latestDate);
 
   const quoteDates = useMemo(
     () => [...new Set(officialQuotes.map((item) => item.quoteDate))].sort(),
@@ -69,11 +77,24 @@ export default function BusinessRatesPage() {
       if (filters.currency2 && item.currency2 !== filters.currency2) return false;
       if (filters.pair && item.pair !== filters.pair) return false;
       if (selectedQuoteDate && item.quoteDate !== selectedQuoteDate) return false;
+      if (filters.status === 'effective' && isQuoteLocked(item.quoteDate, unlockedQuoteDate)) return false;
+      if (filters.status === 'locked' && !isQuoteLocked(item.quoteDate, unlockedQuoteDate)) return false;
       const pair = pairById.get(item.pairId);
       if (item.quoteDate === latestDate && pair && !pair.enabled) return false;
       return true;
     });
-  }, [filters, officialQuotes, selectedQuoteDate, pairById, latestDate]);
+  }, [filters, officialQuotes, selectedQuoteDate, pairById, latestDate, unlockedQuoteDate]);
+
+  const viewedDate = selectedQuoteDate ?? latestDate;
+  const viewedExceptionCount = customDayQuoteCount(officialQuotes, viewedDate);
+  const globalPreviewQuotes = useMemo(
+    () =>
+      officialQuotes.filter((item) => {
+        if (item.quoteDate !== latestDate || isCustomDayQuote(item)) return false;
+        return pairById.get(item.pairId)?.enabled;
+      }),
+    [officialQuotes, latestDate, pairById],
+  );
 
   const metaDateLabel = selectedQuoteDate
     ? `${selectedQuoteDate}${isQuoteLocked(selectedQuoteDate, unlockedQuoteDate) ? '（已锁定）' : ''}`
@@ -88,25 +109,37 @@ export default function BusinessRatesPage() {
   const handleSaveGlobal = (config: BufferConfig) => {
     saveGlobalBuffer(config);
     setBufferOpen(false);
-    message.success(
-      latestDate
-        ? `保存成功，已按新的综合缓冲因子重算 ${latestDate} 全部已启用货币对`
-        : '保存成功，已按新的综合缓冲因子重新计算全部业务报价汇率',
-    );
+    message.success('已保存全局缓冲因子。点击「重新计算」后，当天跟随全局的报价才会更新');
+  };
+
+  const handleSavePair = (config: BufferConfig) => {
+    if (!bufferQuote) return;
+    savePairBuffer(bufferQuote.pairId, config);
+    setBufferQuote(null);
+    message.success(`已调整 ${bufferQuote.pairLabel} 当天有效报价，下一报价日仍按全局默认`);
+  };
+
+  const handleRestorePair = () => {
+    if (!bufferQuote) return;
+    restorePairBuffer(bufferQuote.pairId);
+    setBufferQuote(null);
+    message.success(`${bufferQuote.pairLabel} 当天报价已恢复跟随全局默认`);
   };
 
   const handleRecalculate = () => {
     recalculate();
     setRecalcOpen(false);
     message.success(
-      latestDate
-        ? `已按 ${latestDate} 行情重算 ${enabledCount} 个货币对。`
-        : '已按当前市场数据和缓冲因子重新计算',
+      openDayExceptionCount
+        ? `已按 ${latestDate} 行情重算跟随全局的货币对；${openDayExceptionCount} 个当日例外未改动`
+        : latestDate
+          ? `已按 ${latestDate} 行情重算 ${enabledCount} 个货币对。`
+          : '已按当前市场数据和缓冲因子重新计算',
     );
   };
 
   const columns: ColumnsType<OfficialQuote> = [
-    { title: '行情日期', dataIndex: 'quoteDate', width: 112 },
+    { title: '报价数据日', dataIndex: 'quoteDate', width: 112 },
     {
       title: '货币对',
       dataIndex: 'pairLabel',
@@ -129,8 +162,24 @@ export default function BusinessRatesPage() {
       title: '综合缓冲',
       dataIndex: 'combinedBuffer',
       align: 'right',
-      width: 96,
-      render: (value: string) => formatPercent(value),
+      width: 120,
+      render: (value: string, record) => {
+        const locked = isQuoteLocked(record.quoteDate, unlockedQuoteDate);
+        const canEdit = !locked && pairById.has(record.pairId);
+        const custom = isCustomDayQuote(record);
+        return (
+          <span className="buffer-cell">
+            <span className="buffer-value">{formatPercent(value)}</span>
+            {custom ? (
+              <CustomBufferTag onClick={canEdit ? () => setBufferQuote(record) : undefined} />
+            ) : canEdit ? (
+              <Button type="link" className="buffer-config-link" onClick={() => setBufferQuote(record)}>
+                修改
+              </Button>
+            ) : null}
+          </span>
+        );
+      },
     },
     {
       title: (
@@ -178,7 +227,7 @@ export default function BusinessRatesPage() {
     {
       title: '操作',
       key: 'action',
-      width: 96,
+      width: 88,
       render: (_, record) => (
         <Button type="link" onClick={() => setRuleQuote(record)}>
           计算规则
@@ -190,9 +239,9 @@ export default function BusinessRatesPage() {
   return (
     <div className="page-wrap">
       <div className="page-header">
-        <Title level={3}>业务报价汇率</Title>
+        <Title level={3}>履约报价汇率</Title>
         <Paragraph className="page-desc">
-          官方报价按行情日存档。默认查看最新报价日；历史日报价已冻结，仅可查阅。
+          官方报价按行情日存档。默认查看最新报价日；历史日报价已冻结，仅可查阅。缓冲因子默认跟随全局，当天有效报价可单独配置，不影响下一报价日。
         </Paragraph>
       </div>
 
@@ -215,6 +264,12 @@ export default function BusinessRatesPage() {
               <span className="k">综合缓冲因子</span>
               <span className="v">{formatPercent(combinedBufferOf(globalBuffer))}</span>
             </div>
+            {viewedExceptionCount > 0 ? (
+              <div className="meta-stat">
+                <span className="k">单独配置</span>
+                <span className="v">{viewedExceptionCount} 个货币对</span>
+              </div>
+            ) : null}
           </div>
           <div className="meta-actions">
             <Space>
@@ -240,12 +295,19 @@ export default function BusinessRatesPage() {
           layout="inline"
           colon={false}
           initialValues={{ quoteDate: latestDate ? dayjs(latestDate) : undefined }}
-          onFinish={(values: { currency1?: string; currency2?: string; pair?: string; quoteDate?: Dayjs }) => {
+          onFinish={(values: {
+            currency1?: string;
+            currency2?: string;
+            pair?: string;
+            quoteDate?: Dayjs;
+            status?: QuoteStatusFilter;
+          }) => {
             setFilters({
               currency1: values.currency1,
               currency2: values.currency2,
               pair: values.pair,
               quoteDate: values.quoteDate ? values.quoteDate.format('YYYY-MM-DD') : '',
+              status: values.status,
             });
           }}
         >
@@ -275,6 +337,17 @@ export default function BusinessRatesPage() {
               disabledDate={(date) => !quoteDates.includes(date.format('YYYY-MM-DD'))}
             />
           </Form.Item>
+          <Form.Item name="status" label="状态">
+            <Select
+              allowClear
+              placeholder="全部"
+              style={{ width: 120 }}
+              options={[
+                { value: 'effective', label: '有效' },
+                { value: 'locked', label: '已锁定' },
+              ]}
+            />
+          </Form.Item>
           <Form.Item>
             <Space>
               <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>
@@ -300,7 +373,7 @@ export default function BusinessRatesPage() {
           columns={columns}
           dataSource={filtered}
           tableLayout="fixed"
-          scroll={{ x: 1108 }}
+          scroll={{ x: 1180 }}
           pagination={{
             pageSize: 10,
             showTotal: (total) => `共 ${total} 条`,
@@ -312,10 +385,24 @@ export default function BusinessRatesPage() {
 
       <BufferConfigModal
         open={bufferOpen}
-        pairs={quotePairs}
+        previewQuotes={globalPreviewQuotes}
         initial={globalBuffer}
+        exceptionCount={openDayExceptionCount}
         onCancel={() => setBufferOpen(false)}
         onSave={handleSaveGlobal}
+      />
+      <BufferConfigModal
+        open={!!bufferQuote}
+        quote={bufferQuote}
+        previewQuotes={[]}
+        initial={
+          bufferQuote
+            ? { volatilityBuffer: bufferQuote.volatilityBuffer, fee: bufferQuote.fee }
+            : globalBuffer
+        }
+        onCancel={() => setBufferQuote(null)}
+        onSave={handleSavePair}
+        onRestore={handleRestorePair}
       />
       <Modal
         title="重新计算当前报价日？"
@@ -329,12 +416,15 @@ export default function BusinessRatesPage() {
       >
         <Paragraph>
           {latestDate
-            ? `将按各货币对报价数据源截至 ${latestDate} 的近 7 个交易日均价，重算全部已启用货币对（${enabledCount} 个）。`
+            ? `将按各货币对报价数据源截至 ${latestDate} 的近 7 个交易日均价，重算当天仍跟随全局的货币对${
+                openDayExceptionCount ? `（${enabledCount - openDayExceptionCount} 个）` : `（${enabledCount} 个）`
+              }。`
             : '将按当前市场数据和缓冲因子重算全部已启用货币对。'}
         </Paragraph>
         {latestDate ? (
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
             仅更新 {latestDate} 的官方报价，已锁定的历史日不会改写。
+            {openDayExceptionCount ? ` ${openDayExceptionCount} 个当日例外不会被覆盖。` : ''}
           </Paragraph>
         ) : null}
       </Modal>

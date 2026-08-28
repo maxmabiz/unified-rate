@@ -1,6 +1,7 @@
 import dayjs from 'dayjs';
 import { HISTORY_CALENDAR_DAYS, INITIAL_CALCULATED_AT, INITIAL_DATA_DATE } from '@/constants';
 import type { BufferConfig, DailyBar, FxPairState, OfficialQuote } from '@/types';
+import { pairBufferOf } from '@/utils/buffer';
 import { isTradingDay, lastNCalendarDays, latestTradingDay, tradingBars } from '@/utils/date';
 import { computeQuotes } from '@/utils/rateCalc';
 import { quoteFeed, quoteHistory } from '@/utils/source';
@@ -24,11 +25,9 @@ export function buildOfficialQuote(
   quoteDate: string,
   calculatedAt: string,
   buffer?: BufferConfig,
+  bufferCustom = false,
 ): OfficialQuote {
-  const config = buffer ?? {
-    volatilityBuffer: pair.volatilityBuffer,
-    fee: pair.fee,
-  };
+  const config = buffer ?? pairBufferOf(pair);
   const history = quoteWindow(quoteHistory(pair), quoteDate);
   const quotes = computeQuotes(history, config);
   return {
@@ -48,6 +47,7 @@ export function buildOfficialQuote(
     quoteCcy2: quotes.quoteCcy2,
     calculatedAt,
     history,
+    bufferCustom,
   };
 }
 
@@ -101,6 +101,8 @@ export function rebuildOpenDayQuotes(
   quotes: OfficialQuote[],
   calculatedAt: string,
   pairIds?: string[],
+  globalBuffer?: BufferConfig,
+  skipCustom = false,
 ): OfficialQuote[] {
   const unlocked = openQuoteDate(pairs);
   if (!unlocked) return quotes;
@@ -108,7 +110,9 @@ export function rebuildOpenDayQuotes(
   const targets = pairs.filter((pair) => pair.enabled && (!pairIds || pairIds.includes(pair.id)));
   let next = quotes;
   for (const pair of targets) {
-    next = upsertQuote(next, buildOfficialQuote(pair, unlocked, calculatedAt));
+    const existing = next.find((quote) => quote.pairId === pair.id && quote.quoteDate === unlocked);
+    if (skipCustom && existing?.bufferCustom) continue;
+    next = upsertQuote(next, buildOfficialQuote(pair, unlocked, calculatedAt, globalBuffer, false));
   }
   return next;
 }
