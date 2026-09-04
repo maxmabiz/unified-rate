@@ -10,6 +10,7 @@ import { useRateStore } from '@/store/RateStore';
 import { RATE_SOURCE_IDS, type RateDailyRow, type RateSource } from '@/types';
 import { formatDateTime } from '@/utils/date';
 import { formatRate, formatSignedPercent } from '@/utils/rateCalc';
+import { pairOptionsForSource } from '@/utils/source';
 
 const { Title } = Typography;
 
@@ -34,6 +35,11 @@ export default function RateDataPage() {
   const [form] = Form.useForm();
   const [filters, setFilters] = useState<Filters>({});
   const [historyRow, setHistoryRow] = useState<RateDailyRow | null>(null);
+  const watchedSource = Form.useWatch('source', form) as RateSource | undefined;
+  const pairOptions = useMemo(
+    () => pairOptionsForSource(pairs, watchedSource ?? filters.source),
+    [pairs, watchedSource, filters.source],
+  );
 
   const filtered = useMemo(() => {
     return dailyRows.filter((item) => {
@@ -51,13 +57,13 @@ export default function RateDataPage() {
 
   const columns: ColumnsType<RateDailyRow> = [
     { title: '货币对', dataIndex: 'pairLabel', width: 104 },
-    { title: '数据日期', dataIndex: 'dataDate', width: 120 },
     {
       title: '数据来源',
       dataIndex: 'source',
       width: 112,
       render: (source: RateSource) => <SourceTag source={source} />,
     },
+    { title: '数据日期', dataIndex: 'dataDate', width: 120 },
     {
       title: <Tooltip title="Open">开盘</Tooltip>,
       dataIndex: 'open',
@@ -142,12 +148,7 @@ export default function RateDataPage() {
           }}
         >
           <Form.Item name="pair" label="货币对">
-            <Select
-              allowClear
-              placeholder="全部"
-              style={{ width: 148 }}
-              options={pairs.map((item) => ({ value: item.pair, label: item.pairLabel }))}
-            />
+            <Select allowClear placeholder="全部" style={{ width: 148 }} options={pairOptions} />
           </Form.Item>
           <Form.Item name="source" label="数据来源">
             <Select
@@ -155,6 +156,7 @@ export default function RateDataPage() {
               placeholder="全部"
               style={{ width: 120 }}
               options={RATE_SOURCE_IDS.map((source) => ({ value: source, label: RATE_SOURCE_LABEL[source] }))}
+              onChange={() => form.setFieldValue('pair', undefined)}
             />
           </Form.Item>
           <Form.Item name="dataDate" label="数据日期">

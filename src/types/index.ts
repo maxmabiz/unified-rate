@@ -15,11 +15,13 @@ export interface DailyBar {
 export interface SourceFeed {
   code: string;
   connected: boolean;
+  enabled: boolean;
   lastSyncAt: string;
   syncStatus: SyncStatus;
   latestMarketRate: string;
   dataDate: string;
   history: DailyBar[];
+  configUpdatedAt: string;
 }
 
 export interface FxPairState {
@@ -117,6 +119,7 @@ export interface ConfigChangeLog {
   id: string;
   pairId: string;
   pairLabel: string;
+  source?: RateSource;
   action: string;
   detail: string;
   changedAt: string;

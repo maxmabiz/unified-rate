@@ -19,11 +19,12 @@ body {
 }
 
 .app-logo {
-  height: 52px;
+  min-height: 52px;
+  height: auto;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 16px;
+  padding: 10px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -48,9 +49,10 @@ body {
 
 .app-logo-text {
   color: #fff;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  line-height: 1.35;
+  white-space: normal;
 }
 
 .app-header {

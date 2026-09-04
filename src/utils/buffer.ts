@@ -1,4 +1,5 @@
 import type { BufferConfig, FxPairState, OfficialQuote } from '@/types';
+import { enabledSources } from '@/utils/source';
 
 export function pairBufferOf(pair: Pick<FxPairState, 'volatilityBuffer' | 'fee'>): BufferConfig {
   return {
@@ -26,19 +27,22 @@ export function customDayQuoteCount(quotes: OfficialQuote[], quoteDate?: string)
   return quotes.filter((quote) => (!quoteDate || quote.quoteDate === quoteDate) && quote.bufferCustom).length;
 }
 
-/** 当前报价日里仍跟随全局默认、可被全局保存/重算改写的货币对 */
+/** 当前报价日里仍有跟随全局默认、可被重算改写的货币对 */
 export function openDayFollowerPairIds(
-  pairs: Array<Pick<FxPairState, 'id' | 'enabled'>>,
+  pairs: Array<Pick<FxPairState, 'id' | 'enabled' | 'feeds'>>,
   quotes: OfficialQuote[],
   openDate?: string,
   pairIds?: string[],
 ): string[] {
-  const customIds = new Set(
+  const customKeys = new Set(
     quotes
       .filter((quote) => (!openDate || quote.quoteDate === openDate) && quote.bufferCustom)
-      .map((quote) => quote.pairId),
+      .map((quote) => `${quote.pairId}:${quote.quoteSource}`),
   );
   return pairs
-    .filter((pair) => pair.enabled && (!pairIds || pairIds.includes(pair.id)) && !customIds.has(pair.id))
+    .filter((pair) => {
+      if (!pair.enabled || (pairIds && !pairIds.includes(pair.id))) return false;
+      return enabledSources(pair).some((source) => !customKeys.has(`${pair.id}:${source}`));
+    })
     .map((pair) => pair.id);
 }

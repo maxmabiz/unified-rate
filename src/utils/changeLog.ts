@@ -13,6 +13,7 @@ export function buildChangeLog(input: {
   id?: string;
   pairId: string;
   pairLabel: string;
+  source?: ConfigChangeLog['source'];
   action: string;
   detail: string;
   changedAt: string;
@@ -23,6 +24,7 @@ export function buildChangeLog(input: {
     id: input.id ?? `cl-${input.pairId}-${stamp}-${Date.now().toString(36)}`,
     pairId: input.pairId,
     pairLabel: input.pairLabel,
+    source: input.source,
     action: input.action,
     detail: input.detail,
     changedAt: input.changedAt,
@@ -32,4 +34,12 @@ export function buildChangeLog(input: {
 
 export function sortChangeLogs(logs: ConfigChangeLog[]): ConfigChangeLog[] {
   return [...logs].sort((a, b) => b.changedAt.localeCompare(a.changedAt) || b.id.localeCompare(a.id));
+}
+
+export function isPairConfigLog(log: Pick<ConfigChangeLog, 'action' | 'detail'>): boolean {
+  return !log.action.includes('数据源') && !log.detail.includes('数据源');
+}
+
+export function pairConfigLogs(logs: ConfigChangeLog[], pairId: string): ConfigChangeLog[] {
+  return logs.filter((log) => log.pairId === pairId && isPairConfigLog(log));
 }

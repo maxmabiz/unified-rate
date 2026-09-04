@@ -7,12 +7,14 @@ import dayjs from 'dayjs';
 import BufferConfigModal from '@/components/BufferConfigModal';
 import CalcRuleModal from '@/components/CalcRuleModal';
 import { CustomBufferTag, EffectiveTag, LockedTag, SourceTag } from '@/components/StatusTags';
+import { RATE_SOURCE_LABEL } from '@/constants';
 import { useRateStore } from '@/store/RateStore';
-import type { BufferConfig, OfficialQuote } from '@/types';
+import { RATE_SOURCE_IDS, type BufferConfig, type OfficialQuote, type RateSource } from '@/types';
 import { customDayQuoteCount, isCustomDayQuote } from '@/utils/buffer';
 import { formatDateTime } from '@/utils/date';
 import { isQuoteLocked, latestQuoteDate, quoteWindowLabel } from '@/utils/officialQuote';
 import { combinedBufferOf, formatPercent, formatRate } from '@/utils/rateCalc';
+import { enabledSources } from '@/utils/source';
 
 const { Title, Paragraph } = Typography;
 
@@ -22,6 +24,7 @@ interface Filters {
   currency1?: string;
   currency2?: string;
   pair?: string;
+  source?: RateSource;
   quoteDate?: string;
   status?: QuoteStatusFilter;
 }
@@ -46,10 +49,13 @@ export default function BusinessRatesPage() {
   const [bufferQuote, setBufferQuote] = useState<OfficialQuote | null>(null);
   const [recalcOpen, setRecalcOpen] = useState(false);
   const [ruleQuote, setRuleQuote] = useState<OfficialQuote | null>(null);
+  const watchedSource = Form.useWatch('source', form) as RateSource | undefined;
 
-  const quotePairs = useMemo(() => pairs.filter((item) => item.enabled), [pairs]);
   const latestDate = unlockedQuoteDate ?? latestQuoteDate(officialQuotes);
-  const enabledCount = quotePairs.length;
+  const enabledCount = useMemo(
+    () => pairs.reduce((count, pair) => count + enabledSources(pair).length, 0),
+    [pairs],
+  );
   const openDayExceptionCount = customDayQuoteCount(officialQuotes, latestDate);
 
   const quoteDates = useMemo(
@@ -64,23 +70,28 @@ export default function BusinessRatesPage() {
   const currencies1 = [...new Set(officialQuotes.map((item) => item.currency1))];
   const currencies2 = [...new Set(officialQuotes.map((item) => item.currency2))];
   const pairOptions = useMemo(() => {
+    const source = watchedSource ?? filters.source;
     const seen = new Map<string, string>();
     for (const item of officialQuotes) {
+      if (source && item.quoteSource !== source) continue;
       seen.set(item.pair, item.pairLabel);
     }
     return [...seen.entries()].map(([value, label]) => ({ value, label }));
-  }, [officialQuotes]);
+  }, [officialQuotes, watchedSource, filters.source]);
+
+  const isSourcePairEnabled = (pairId: string, source: RateSource) =>
+    Boolean(pairById.get(pairId)?.feeds[source]?.enabled);
 
   const filtered = useMemo(() => {
     return officialQuotes.filter((item) => {
       if (filters.currency1 && item.currency1 !== filters.currency1) return false;
       if (filters.currency2 && item.currency2 !== filters.currency2) return false;
       if (filters.pair && item.pair !== filters.pair) return false;
+      if (filters.source && item.quoteSource !== filters.source) return false;
       if (selectedQuoteDate && item.quoteDate !== selectedQuoteDate) return false;
       if (filters.status === 'effective' && isQuoteLocked(item.quoteDate, unlockedQuoteDate)) return false;
       if (filters.status === 'locked' && !isQuoteLocked(item.quoteDate, unlockedQuoteDate)) return false;
-      const pair = pairById.get(item.pairId);
-      if (item.quoteDate === latestDate && pair && !pair.enabled) return false;
+      if (item.quoteDate === latestDate && !isSourcePairEnabled(item.pairId, item.quoteSource)) return false;
       return true;
     });
   }, [filters, officialQuotes, selectedQuoteDate, pairById, latestDate, unlockedQuoteDate]);
@@ -91,7 +102,7 @@ export default function BusinessRatesPage() {
     () =>
       officialQuotes.filter((item) => {
         if (item.quoteDate !== latestDate || isCustomDayQuote(item)) return false;
-        return pairById.get(item.pairId)?.enabled;
+        return isSourcePairEnabled(item.pairId, item.quoteSource);
       }),
     [officialQuotes, latestDate, pairById],
   );
@@ -114,14 +125,14 @@ export default function BusinessRatesPage() {
 
   const handleSavePair = (config: BufferConfig) => {
     if (!bufferQuote) return;
-    savePairBuffer(bufferQuote.pairId, config);
+    savePairBuffer(bufferQuote.pairId, bufferQuote.quoteSource, config);
     setBufferQuote(null);
     message.success(`已调整 ${bufferQuote.pairLabel} 当天有效报价，下一报价日仍按全局默认`);
   };
 
   const handleRestorePair = () => {
     if (!bufferQuote) return;
-    restorePairBuffer(bufferQuote.pairId);
+    restorePairBuffer(bufferQuote.pairId, bufferQuote.quoteSource);
     setBufferQuote(null);
     message.success(`${bufferQuote.pairLabel} 当天报价已恢复跟随全局默认`);
   };
@@ -131,9 +142,9 @@ export default function BusinessRatesPage() {
     setRecalcOpen(false);
     message.success(
       openDayExceptionCount
-        ? `已按 ${latestDate} 行情重算跟随全局的货币对；${openDayExceptionCount} 个当日例外未改动`
+        ? `已按 ${latestDate} 行情重算跟随全局的报价；${openDayExceptionCount} 个当日例外未改动`
         : latestDate
-          ? `已按 ${latestDate} 行情重算 ${enabledCount} 个货币对。`
+          ? `已按 ${latestDate} 行情重算 ${enabledCount} 个货币对的全部数据源报价。`
           : '已按当前市场数据和缓冲因子重新计算',
     );
   };
@@ -146,7 +157,7 @@ export default function BusinessRatesPage() {
       width: 112,
     },
     {
-      title: '报价数据源',
+      title: '数据来源',
       dataIndex: 'quoteSource',
       width: 112,
       render: (source: OfficialQuote['quoteSource']) => <SourceTag source={source} />,
@@ -165,7 +176,7 @@ export default function BusinessRatesPage() {
       width: 120,
       render: (value: string, record) => {
         const locked = isQuoteLocked(record.quoteDate, unlockedQuoteDate);
-        const canEdit = !locked && pairById.has(record.pairId);
+        const canEdit = !locked && isSourcePairEnabled(record.pairId, record.quoteSource);
         const custom = isCustomDayQuote(record);
         return (
           <span className="buffer-cell">
@@ -267,7 +278,7 @@ export default function BusinessRatesPage() {
             {viewedExceptionCount > 0 ? (
               <div className="meta-stat">
                 <span className="k">单独配置</span>
-                <span className="v">{viewedExceptionCount} 个货币对</span>
+                <span className="v">{viewedExceptionCount} 条报价</span>
               </div>
             ) : null}
           </div>
@@ -299,6 +310,7 @@ export default function BusinessRatesPage() {
             currency1?: string;
             currency2?: string;
             pair?: string;
+            source?: RateSource;
             quoteDate?: Dayjs;
             status?: QuoteStatusFilter;
           }) => {
@@ -306,6 +318,7 @@ export default function BusinessRatesPage() {
               currency1: values.currency1,
               currency2: values.currency2,
               pair: values.pair,
+              source: values.source,
               quoteDate: values.quoteDate ? values.quoteDate.format('YYYY-MM-DD') : '',
               status: values.status,
             });
@@ -329,6 +342,18 @@ export default function BusinessRatesPage() {
           </Form.Item>
           <Form.Item name="pair" label="货币对">
             <Select allowClear placeholder="全部" style={{ width: 148 }} options={pairOptions} />
+          </Form.Item>
+          <Form.Item name="source" label="数据来源">
+            <Select
+              allowClear
+              placeholder="全部"
+              style={{ width: 132 }}
+              options={RATE_SOURCE_IDS.map((source) => ({
+                value: source,
+                label: RATE_SOURCE_LABEL[source],
+              }))}
+              onChange={() => form.setFieldValue('pair', undefined)}
+            />
           </Form.Item>
           <Form.Item name="quoteDate" label="报价日期">
             <DatePicker
@@ -375,7 +400,7 @@ export default function BusinessRatesPage() {
           tableLayout="fixed"
           scroll={{ x: 1180 }}
           pagination={{
-            pageSize: 10,
+            pageSize: 20,
             showTotal: (total) => `共 ${total} 条`,
             showSizeChanger: false,
             size: 'small',
@@ -415,9 +440,9 @@ export default function BusinessRatesPage() {
         destroyOnHidden
       >
         <Paragraph>
-          {latestDate
-            ? `将按各货币对报价数据源截至 ${latestDate} 的近 7 个交易日均价，重算当天仍跟随全局的货币对${
-                openDayExceptionCount ? `（${enabledCount - openDayExceptionCount} 个）` : `（${enabledCount} 个）`
+            {latestDate
+            ? `将按各接入数据源截至 ${latestDate} 的近 7 个交易日均价，重算当天仍跟随全局的报价${
+                openDayExceptionCount ? `（不含 ${openDayExceptionCount} 条当日例外）` : ''
               }。`
             : '将按当前市场数据和缓冲因子重算全部已启用货币对。'}
         </Paragraph>

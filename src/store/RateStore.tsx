@@ -26,7 +26,7 @@ import {
   tradingDayChangeRatio,
 } from '@/utils/rateCalc';
 import { buildChangeLog, pairStatusChangeAction, pairStatusChangeDetail } from '@/utils/changeLog';
-import { quoteFeed, quoteSourceChangeDetail } from '@/utils/source';
+import { enabledSources, quoteFeed } from '@/utils/source';
 
 interface RateStoreValue {
   sourceSync: AppSnapshot['sourceSync'];
@@ -42,10 +42,9 @@ interface RateStoreValue {
   syncAll: (range: DateRange, sources: RateSource[]) => Promise<{ ok: boolean; error?: string }>;
   recalculate: () => void;
   saveGlobalBuffer: (config: BufferConfig) => void;
-  savePairBuffer: (id: string, config: BufferConfig) => void;
-  restorePairBuffer: (id: string) => void;
+  savePairBuffer: (id: string, source: RateSource, config: BufferConfig) => void;
+  restorePairBuffer: (id: string, source: RateSource) => void;
   addPair: (input: PairConfigInput) => { ok: boolean; error?: string };
-  setQuoteSource: (id: string, source: RateSource) => { ok: boolean; error?: string };
   setPairEnabled: (id: string, enabled: boolean) => { ok: boolean; error?: string };
 }
 
@@ -179,13 +178,13 @@ export function RateProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: '请选择至少一个数据源' };
     }
 
-    const enabledPairs = snapshot.pairs.filter((pair) => pair.enabled);
+    const enabledPairs = snapshot.pairs.filter((pair) => enabledSources(pair).length > 0);
     if (enabledPairs.length === 0) {
       return { ok: false, error: '请先启用至少一个货币对' };
     }
 
     const work = selected.filter((source) =>
-      enabledPairs.some((pair) => pair.feeds[source].connected),
+      enabledPairs.some((pair) => pair.feeds[source].connected && pair.feeds[source].enabled),
     );
     if (work.length === 0) {
       return { ok: false, error: '所选数据源没有已接入的启用货币对' };
@@ -211,10 +210,10 @@ export function RateProvider({ children }: { children: ReactNode }) {
       pairs: prev.pairs.map((pair) => ({
         ...pair,
         feeds: {
-          reuters: pair.enabled && work.includes('reuters') && pair.feeds.reuters.connected
+          reuters: pair.feeds.reuters.connected && pair.feeds.reuters.enabled && work.includes('reuters')
             ? { ...pair.feeds.reuters, syncStatus: '同步中' }
             : pair.feeds.reuters,
-          investing: pair.enabled && work.includes('investing') && pair.feeds.investing.connected
+          investing: pair.feeds.investing.connected && pair.feeds.investing.enabled && work.includes('investing')
             ? { ...pair.feeds.investing, syncStatus: '同步中' }
             : pair.feeds.investing,
         },
@@ -233,8 +232,9 @@ export function RateProvider({ children }: { children: ReactNode }) {
       outcome[source] = syncFailCount[source] % 3 === 0 ? '失败' : '正常';
     }
 
-    const anyQuoteUpdated = snapshot.pairs.some(
-      (pair) => pair.enabled && work.includes(pair.quoteSource) && pair.feeds[pair.quoteSource].connected && outcome[pair.quoteSource] === '正常',
+    const successSources = work.filter((source) => outcome[source] === '正常');
+    const anyQuoteUpdated = successSources.length > 0 && snapshot.pairs.some(
+      (pair) => enabledSources(pair).some((source) => successSources.includes(source)),
     );
 
     setSnapshot((prev) => {
@@ -248,7 +248,9 @@ export function RateProvider({ children }: { children: ReactNode }) {
       const calculatedAt = anyQuoteUpdated ? nowText(dayjs().add(2, 'second')) : prev.lastCalculatedAt;
       const quotePairIds = anyQuoteUpdated
         ? nextPairs
-            .filter((pair) => pair.enabled && work.includes(pair.quoteSource) && outcome[pair.quoteSource] === '正常')
+            .filter((pair) =>
+              enabledSources(pair).some((source) => successSources.includes(source)),
+            )
             .map((pair) => pair.id)
         : [];
       return {
@@ -276,6 +278,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
               quotePairIds,
               prev.globalBuffer,
               true,
+              successSources,
             )
           : prev.officialQuotes,
       };
@@ -321,35 +324,35 @@ export function RateProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
-  const savePairBuffer = useCallback((id: string, config: BufferConfig) => {
+  const savePairBuffer = useCallback((id: string, source: RateSource, config: BufferConfig) => {
     setSnapshot((prev) => {
       const unlocked = openQuoteDate(prev.pairs);
       const pair = prev.pairs.find((item) => item.id === id);
-      if (!unlocked || !pair?.enabled) return prev;
+      if (!unlocked || !pair?.feeds[source]?.enabled) return prev;
       const calculatedAt = nowText();
       return {
         ...prev,
         lastCalculatedAt: calculatedAt,
         officialQuotes: upsertQuote(
           prev.officialQuotes,
-          buildOfficialQuote(pair, unlocked, calculatedAt, config, true),
+          buildOfficialQuote(pair, unlocked, calculatedAt, config, true, source),
         ),
       };
     });
   }, []);
 
-  const restorePairBuffer = useCallback((id: string) => {
+  const restorePairBuffer = useCallback((id: string, source: RateSource) => {
     setSnapshot((prev) => {
       const unlocked = openQuoteDate(prev.pairs);
       const pair = prev.pairs.find((item) => item.id === id);
-      if (!unlocked || !pair?.enabled) return prev;
+      if (!unlocked || !pair?.feeds[source]?.enabled) return prev;
       const calculatedAt = nowText();
       return {
         ...prev,
         lastCalculatedAt: calculatedAt,
         officialQuotes: upsertQuote(
           prev.officialQuotes,
-          buildOfficialQuote(pair, unlocked, calculatedAt, prev.globalBuffer, false),
+          buildOfficialQuote(pair, unlocked, calculatedAt, prev.globalBuffer, false, source),
         ),
       };
     });
@@ -405,39 +408,6 @@ export function RateProvider({ children }: { children: ReactNode }) {
     return { ok: true };
   }, [snapshot.pairs]);
 
-  const setQuoteSource = useCallback((id: string, source: RateSource) => {
-    const target = snapshot.pairs.find((pair) => pair.id === id);
-    if (!target) return { ok: false, error: '货币对不存在' };
-    if (!target.feeds[source].connected) {
-      return { ok: false, error: '请选择已接入的数据源' };
-    }
-    if (target.quoteSource === source) {
-      return { ok: false, error: '报价数据源未变化' };
-    }
-
-    setSnapshot((prev) => {
-      const pair = prev.pairs.find((item) => item.id === id);
-      if (!pair || pair.quoteSource === source || !pair.feeds[source].connected) return prev;
-      const changedAt = nowText();
-      const log = buildChangeLog({
-        pairId: id,
-        pairLabel: pair.pairLabel,
-        action: '更改数据源',
-        detail: quoteSourceChangeDetail(pair.quoteSource, source),
-        changedAt,
-        operator: CURRENT_OPERATOR,
-      });
-      return {
-        ...prev,
-        pairs: prev.pairs.map((item) =>
-          item.id === id ? { ...item, quoteSource: source, configUpdatedAt: changedAt } : item,
-        ),
-        changeLogs: [log, ...prev.changeLogs],
-      };
-    });
-    return { ok: true };
-  }, [snapshot.pairs]);
-
   const setPairEnabled = useCallback((id: string, enabled: boolean) => {
     const target = snapshot.pairs.find((pair) => pair.id === id);
     if (!target) return { ok: false, error: '货币对不存在' };
@@ -447,8 +417,18 @@ export function RateProvider({ children }: { children: ReactNode }) {
       const pair = prev.pairs.find((item) => item.id === id);
       if (!pair || pair.enabled === enabled) return prev;
       const calculatedAt = nowText();
+      const nextFeeds = {
+        reuters: pair.feeds.reuters.connected
+          ? { ...pair.feeds.reuters, enabled, configUpdatedAt: calculatedAt }
+          : pair.feeds.reuters,
+        investing: pair.feeds.investing.connected
+          ? { ...pair.feeds.investing, enabled, configUpdatedAt: calculatedAt }
+          : pair.feeds.investing,
+      };
       const nextPairs = prev.pairs.map((item) =>
-        item.id === id ? { ...item, enabled, configUpdatedAt: calculatedAt } : item,
+        item.id === id
+          ? { ...item, feeds: nextFeeds, enabled, configUpdatedAt: calculatedAt }
+          : item,
       );
       const log = buildChangeLog({
         pairId: id,
@@ -491,7 +471,6 @@ export function RateProvider({ children }: { children: ReactNode }) {
       savePairBuffer,
       restorePairBuffer,
       addPair,
-      setQuoteSource,
       setPairEnabled,
     }),
     [
@@ -511,7 +490,6 @@ export function RateProvider({ children }: { children: ReactNode }) {
       savePairBuffer,
       restorePairBuffer,
       addPair,
-      setQuoteSource,
       setPairEnabled,
     ],
   );
@@ -528,7 +506,7 @@ function patchFeedAfterSync(
   rangeDays: string[],
 ): SourceFeed {
   const feed = pair.feeds[source];
-  if (!pair.enabled || !work.includes(source) || !feed.connected) return feed;
+  if (!work.includes(source) || !feed.connected || !feed.enabled) return feed;
   if (outcome[source] === '失败') {
     return { ...feed, lastSyncAt: syncedAt, syncStatus: '失败' };
   }

@@ -19,7 +19,6 @@ import { isTradingDay, lastNCalendarDays, lastNTradingDays } from '@/utils/date'
 import { seedOfficialQuotes } from '@/utils/officialQuote';
 import { previousTradingClose } from '@/utils/rateCalc';
 import { buildChangeLog, pairStatusChangeDetail, sortChangeLogs } from '@/utils/changeLog';
-import { quoteSourceChangeDetail } from '@/utils/source';
 
 export interface PairSeed {
   currency1: string;
@@ -206,11 +205,13 @@ export function emptyFeed(code = ''): SourceFeed {
   return {
     code,
     connected: false,
+    enabled: false,
     lastSyncAt: '',
     syncStatus: '正常',
     latestMarketRate: '0',
     dataDate: '',
     history: [],
+    configUpdatedAt: '',
   };
 }
 
@@ -223,11 +224,13 @@ export function feedFromHistory(
   return {
     code: code.trim(),
     connected,
+    enabled: connected,
     lastSyncAt: connected && history.length ? INITIAL_SYNC_AT : '',
     syncStatus: '正常',
     latestMarketRate: latestBar?.close ?? '0',
     dataDate: latestBar?.date ?? '',
     history,
+    configUpdatedAt: connected ? INITIAL_CALCULATED_AT : '',
   };
 }
 
@@ -310,14 +313,6 @@ export function seedChangeLogs(): ConfigChangeLog[] {
     buildChangeLog({
       pairId: 'USDCNY',
       pairLabel: 'USD/CNY',
-      action: '更改数据源',
-      detail: quoteSourceChangeDetail('investing', 'reuters'),
-      changedAt: '2026-08-15 14:32:08',
-      operator: CURRENT_OPERATOR,
-    }),
-    buildChangeLog({
-      pairId: 'USDCNY',
-      pairLabel: 'USD/CNY',
       action: '启用',
       detail: pairStatusChangeDetail(true),
       changedAt: '2026-08-12 10:18:22',
@@ -330,22 +325,6 @@ export function seedChangeLogs(): ConfigChangeLog[] {
       detail: pairStatusChangeDetail(false),
       changedAt: '2026-08-11 16:05:40',
       operator: '李财务',
-    }),
-    buildChangeLog({
-      pairId: 'EURUSD',
-      pairLabel: 'EUR/USD',
-      action: '更改数据源',
-      detail: quoteSourceChangeDetail('investing', 'reuters'),
-      changedAt: '2026-08-17 08:12:00',
-      operator: CURRENT_OPERATOR,
-    }),
-    buildChangeLog({
-      pairId: 'EURUSD',
-      pairLabel: 'EUR/USD',
-      action: '更改数据源',
-      detail: quoteSourceChangeDetail('reuters', 'investing'),
-      changedAt: '2026-08-14 16:40:21',
-      operator: CURRENT_OPERATOR,
     }),
     buildChangeLog({
       pairId: 'GBPCNY',
@@ -378,14 +357,6 @@ export function seedChangeLogs(): ConfigChangeLog[] {
       detail: pairStatusChangeDetail(false),
       changedAt: '2026-08-13 15:22:51',
       operator: CURRENT_OPERATOR,
-    }),
-    buildChangeLog({
-      pairId: 'EURCNY',
-      pairLabel: 'EUR/CNY',
-      action: '更改数据源',
-      detail: quoteSourceChangeDetail('investing', 'reuters'),
-      changedAt: '2026-08-16 09:20:11',
-      operator: '李财务',
     }),
   ]);
 }

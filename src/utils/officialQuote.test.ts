@@ -16,10 +16,10 @@ describe('官方报价按日冻结', () => {
     const tradingDays = lastNCalendarDays(INITIAL_DATA_DATE, HISTORY_CALENDAR_DAYS).filter(isTradingDay);
 
     expect(openQuoteDate(snapshot.pairs)).toBe('2026-08-18');
-    expect(snapshot.officialQuotes).toHaveLength(snapshot.pairs.length * tradingDays.length);
+    expect(snapshot.officialQuotes).toHaveLength(snapshot.pairs.length * 2 * tradingDays.length);
     expect(tradingDays[tradingDays.length - 1]).toBe('2026-08-18');
     expect(snapshot.officialQuotes.every((quote) => tradingDays.includes(quote.quoteDate))).toBe(true);
-    expect(snapshot.officialQuotes.filter((quote) => quote.quoteDate === '2026-08-18')).toHaveLength(8);
+    expect(snapshot.officialQuotes.filter((quote) => quote.quoteDate === '2026-08-18')).toHaveLength(16);
     expect(isQuoteLocked('2026-08-17', '2026-08-18')).toBe(true);
     expect(isQuoteLocked('2026-08-18', '2026-08-18')).toBe(false);
   });
@@ -27,10 +27,10 @@ describe('官方报价按日冻结', () => {
   it('改缓冲只重写未锁定日，历史报价保持快照', () => {
     const snapshot = createInitialSnapshot();
     const locked = snapshot.officialQuotes.find(
-      (quote) => quote.pair === 'USDCNY' && quote.quoteDate === '2026-08-17',
+      (quote) => quote.pair === 'USDCNY' && quote.quoteDate === '2026-08-17' && quote.quoteSource === 'reuters',
     );
     const open = snapshot.officialQuotes.find(
-      (quote) => quote.pair === 'USDCNY' && quote.quoteDate === '2026-08-18',
+      (quote) => quote.pair === 'USDCNY' && quote.quoteDate === '2026-08-18' && quote.quoteSource === 'reuters',
     );
     expect(locked).toBeDefined();
     expect(open).toBeDefined();
@@ -42,8 +42,12 @@ describe('官方报价按日冻结', () => {
     }));
     const next = rebuildOpenDayQuotes(nextPairs, snapshot.officialQuotes, '2026-08-18 12:00:00');
 
-    const lockedAfter = next.find((quote) => quote.pair === 'USDCNY' && quote.quoteDate === '2026-08-17');
-    const openAfter = next.find((quote) => quote.pair === 'USDCNY' && quote.quoteDate === '2026-08-18');
+    const lockedAfter = next.find(
+      (quote) => quote.pair === 'USDCNY' && quote.quoteDate === '2026-08-17' && quote.quoteSource === 'reuters',
+    );
+    const openAfter = next.find(
+      (quote) => quote.pair === 'USDCNY' && quote.quoteDate === '2026-08-18' && quote.quoteSource === 'reuters',
+    );
 
     expect(lockedAfter).toMatchObject({
       quoteCcy1: locked?.quoteCcy1,
@@ -86,39 +90,22 @@ describe('官方报价按日冻结', () => {
   it('首次报价日取该对已存档官方报价中最早的行情日', () => {
     const snapshot = createInitialSnapshot();
     expect(firstQuoteDate(snapshot.officialQuotes, 'USDCNY')).toBe('2026-08-10');
+    expect(firstQuoteDate(snapshot.officialQuotes, 'USDCNY', 'reuters')).toBe('2026-08-10');
     expect(firstQuoteDate(snapshot.officialQuotes, 'EURUSD')).toBe('2026-08-10');
     expect(firstQuoteDate([], 'USDCNY')).toBeUndefined();
   });
 
-  it('更改报价数据源后，下次重算才改未锁定日的数据源，历史日保持原源', () => {
+  it('每个接入数据源都生成报价', () => {
     const snapshot = createInitialSnapshot();
-    const usdcny = snapshot.pairs.find((pair) => pair.id === 'USDCNY');
-    expect(usdcny?.quoteSource).toBe('reuters');
+    const usdcnyOpen = snapshot.officialQuotes.filter(
+      (quote) => quote.pair === 'USDCNY' && quote.quoteDate === '2026-08-18',
+    );
+    const sources = usdcnyOpen.map((quote) => quote.quoteSource).sort();
+
+    expect(sources).toEqual(['investing', 'reuters']);
+    expect(new Set(usdcnyOpen.map((quote) => quote.id)).size).toBe(2);
     expect(
-      snapshot.officialQuotes
-        .filter((quote) => quote.pair === 'USDCNY')
-        .every((quote) => quote.quoteSource === 'reuters'),
+      snapshot.officialQuotes.every((quote) => quote.id === `${quote.pairId}-${quote.quoteSource}-${quote.quoteDate}`),
     ).toBe(true);
-
-    const switched = snapshot.pairs.map((pair) =>
-      pair.id === 'USDCNY' ? { ...pair, quoteSource: 'investing' as const } : pair,
-    );
-
-    expect(
-      snapshot.officialQuotes.find((quote) => quote.pair === 'USDCNY' && quote.quoteDate === '2026-08-18')
-        ?.quoteSource,
-    ).toBe('reuters');
-
-    const next = rebuildOpenDayQuotes(switched, snapshot.officialQuotes, '2026-08-18 18:00:00', ['USDCNY']);
-    const openAfter = next.find((quote) => quote.pair === 'USDCNY' && quote.quoteDate === '2026-08-18');
-    const lockedAfter = next.find((quote) => quote.pair === 'USDCNY' && quote.quoteDate === '2026-08-17');
-
-    expect(openAfter?.quoteSource).toBe('investing');
-    expect(openAfter?.calculatedAt).toBe('2026-08-18 18:00:00');
-    expect(lockedAfter?.quoteSource).toBe('reuters');
-    expect(lockedAfter?.calculatedAt).toBe(
-      snapshot.officialQuotes.find((quote) => quote.pair === 'USDCNY' && quote.quoteDate === '2026-08-17')
-        ?.calculatedAt,
-    );
   });
 });

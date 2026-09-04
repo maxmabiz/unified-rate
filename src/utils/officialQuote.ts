@@ -1,10 +1,10 @@
 import dayjs from 'dayjs';
 import { HISTORY_CALENDAR_DAYS, INITIAL_CALCULATED_AT, INITIAL_DATA_DATE } from '@/constants';
-import type { BufferConfig, DailyBar, FxPairState, OfficialQuote } from '@/types';
+import type { BufferConfig, DailyBar, FxPairState, OfficialQuote, RateSource } from '@/types';
 import { pairBufferOf } from '@/utils/buffer';
 import { isTradingDay, lastNCalendarDays, latestTradingDay, tradingBars } from '@/utils/date';
 import { computeQuotes } from '@/utils/rateCalc';
-import { quoteFeed, quoteHistory } from '@/utils/source';
+import { enabledSources, sourceHistory } from '@/utils/source';
 
 export function quoteWindow(history: DailyBar[], quoteDate: string, count = 7): DailyBar[] {
   return tradingBars(
@@ -26,19 +26,21 @@ export function buildOfficialQuote(
   calculatedAt: string,
   buffer?: BufferConfig,
   bufferCustom = false,
+  source?: RateSource,
 ): OfficialQuote {
+  const quoteSource = source ?? pair.quoteSource;
   const config = buffer ?? pairBufferOf(pair);
-  const history = quoteWindow(quoteHistory(pair), quoteDate);
+  const history = quoteWindow(sourceHistory(pair, quoteSource), quoteDate);
   const quotes = computeQuotes(history, config);
   return {
-    id: `${pair.id}-${quoteDate}`,
+    id: `${pair.id}-${quoteSource}-${quoteDate}`,
     pairId: pair.id,
     currency1: pair.currency1,
     currency2: pair.currency2,
     pair: pair.pair,
     pairLabel: pair.pairLabel,
     quoteDate,
-    quoteSource: pair.quoteSource,
+    quoteSource,
     avg7: quotes.avg7,
     combinedBuffer: quotes.combinedBuffer,
     volatilityBuffer: config.volatilityBuffer,
@@ -54,9 +56,11 @@ export function buildOfficialQuote(
 export function openQuoteDate(pairs: FxPairState[]): string | undefined {
   let latest: string | undefined;
   for (const pair of pairs.filter((item) => item.enabled)) {
-    const dataDate = quoteFeed(pair).dataDate;
-    if (dataDate && (!latest || dataDate > latest)) {
-      latest = dataDate;
+    for (const source of enabledSources(pair)) {
+      const dataDate = pair.feeds[source].dataDate;
+      if (dataDate && (!latest || dataDate > latest)) {
+        latest = dataDate;
+      }
     }
   }
   if (!latest) return undefined;
@@ -68,10 +72,11 @@ export function latestQuoteDate(quotes: OfficialQuote[]): string | undefined {
   return quotes.reduce((max, quote) => (quote.quoteDate > max ? quote.quoteDate : max), quotes[0].quoteDate);
 }
 
-export function firstQuoteDate(quotes: OfficialQuote[], pairId: string): string | undefined {
+export function firstQuoteDate(quotes: OfficialQuote[], pairId: string, source?: RateSource): string | undefined {
   let earliest: string | undefined;
   for (const quote of quotes) {
     if (quote.pairId !== pairId) continue;
+    if (source && quote.quoteSource !== source) continue;
     if (!earliest || quote.quoteDate < earliest) {
       earliest = quote.quoteDate;
     }
@@ -85,7 +90,11 @@ export function isQuoteLocked(quoteDate: string, unlockedDate: string | undefine
 }
 
 function compareQuotes(a: OfficialQuote, b: OfficialQuote): number {
-  return b.quoteDate.localeCompare(a.quoteDate) || a.pair.localeCompare(b.pair);
+  return (
+    b.quoteDate.localeCompare(a.quoteDate) ||
+    a.pair.localeCompare(b.pair) ||
+    a.quoteSource.localeCompare(b.quoteSource)
+  );
 }
 
 export function sortOfficialQuotes(quotes: OfficialQuote[]): OfficialQuote[] {
@@ -103,6 +112,7 @@ export function rebuildOpenDayQuotes(
   pairIds?: string[],
   globalBuffer?: BufferConfig,
   skipCustom = false,
+  sources?: RateSource[],
 ): OfficialQuote[] {
   const unlocked = openQuoteDate(pairs);
   if (!unlocked) return quotes;
@@ -110,9 +120,14 @@ export function rebuildOpenDayQuotes(
   const targets = pairs.filter((pair) => pair.enabled && (!pairIds || pairIds.includes(pair.id)));
   let next = quotes;
   for (const pair of targets) {
-    const existing = next.find((quote) => quote.pairId === pair.id && quote.quoteDate === unlocked);
-    if (skipCustom && existing?.bufferCustom) continue;
-    next = upsertQuote(next, buildOfficialQuote(pair, unlocked, calculatedAt, globalBuffer, false));
+    for (const source of enabledSources(pair)) {
+      if (sources && !sources.includes(source)) continue;
+      const existing = next.find(
+        (quote) => quote.pairId === pair.id && quote.quoteDate === unlocked && quote.quoteSource === source,
+      );
+      if (skipCustom && existing?.bufferCustom) continue;
+      next = upsertQuote(next, buildOfficialQuote(pair, unlocked, calculatedAt, globalBuffer, false, source));
+    }
   }
   return next;
 }
@@ -125,9 +140,11 @@ export function seedOfficialQuotes(
   const dates = lastNCalendarDays(windowEnd, calendarDays).filter((date) => isTradingDay(date));
   const quotes: OfficialQuote[] = [];
   for (const pair of pairs.filter((item) => item.enabled)) {
-    for (const date of dates) {
-      const calculatedAt = date === windowEnd ? INITIAL_CALCULATED_AT : `${date} 06:02:06`;
-      quotes.push(buildOfficialQuote(pair, date, calculatedAt));
+    for (const source of enabledSources(pair)) {
+      for (const date of dates) {
+        const calculatedAt = date === windowEnd ? INITIAL_CALCULATED_AT : `${date} 06:02:06`;
+        quotes.push(buildOfficialQuote(pair, date, calculatedAt, undefined, false, source));
+      }
     }
   }
   return sortOfficialQuotes(quotes);

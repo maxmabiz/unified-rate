@@ -21,7 +21,7 @@ export default function MainLayout() {
       children: [
         {
           key: 'rate-mgmt',
-          label: '履约汇率管理',
+          label: '履约业务汇率线上化',
           children: [
             { key: '/pairs', label: '货币对配置' },
             { key: '/data', label: '汇率数据' },
@@ -39,7 +39,7 @@ export default function MainLayout() {
         collapsible
         collapsed={collapsed}
         onCollapse={setCollapsed}
-        width={208}
+        width={228}
         theme="dark"
       >
         <div className={`app-logo${collapsed ? ' is-collapsed' : ''}`}>
@@ -62,7 +62,7 @@ export default function MainLayout() {
           <div className="app-header-title">
             <Text strong>资金中台</Text>
             <span className="app-header-divider" />
-            <Text type="secondary">履约汇率管理</Text>
+            <Text type="secondary">履约业务汇率线上化</Text>
             <Tag className="app-version" bordered={false} color="blue">
               v{APP_VERSION}
             </Tag>
