@@ -1,5 +1,5 @@
 import { CURRENT_OPERATOR } from '@/constants';
-import type { ConfigChangeLog } from '@/types';
+import type { ConfigChangeLog, RateSource } from '@/types';
 
 export function pairStatusChangeDetail(enabled: boolean): string {
   return enabled ? '状态由停用改为启用' : '状态由启用改为停用';
@@ -40,6 +40,14 @@ export function isPairConfigLog(log: Pick<ConfigChangeLog, 'action' | 'detail'>)
   return !log.action.includes('数据源') && !log.detail.includes('数据源');
 }
 
-export function pairConfigLogs(logs: ConfigChangeLog[], pairId: string): ConfigChangeLog[] {
-  return logs.filter((log) => log.pairId === pairId && isPairConfigLog(log));
+export function pairConfigLogs(
+  logs: ConfigChangeLog[],
+  pairId: string,
+  source?: RateSource,
+): ConfigChangeLog[] {
+  return logs.filter((log) => {
+    if (log.pairId !== pairId || !isPairConfigLog(log)) return false;
+    if (!source) return true;
+    return !log.source || log.source === source;
+  });
 }

@@ -1,16 +1,18 @@
 import { Drawer, Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import type { ConfigChangeLog } from '@/types';
+import { RATE_SOURCE_LABEL } from '@/constants';
+import type { ConfigChangeLog, RateSource } from '@/types';
 import { formatDateTime } from '@/utils/date';
 
 interface ChangeLogDrawerProps {
   pairLabel?: string;
+  source?: RateSource;
   logs: ConfigChangeLog[];
   open: boolean;
   onClose: () => void;
 }
 
-export default function ChangeLogDrawer({ pairLabel, logs, open, onClose }: ChangeLogDrawerProps) {
+export default function ChangeLogDrawer({ pairLabel, source, logs, open, onClose }: ChangeLogDrawerProps) {
   const columns: ColumnsType<ConfigChangeLog> = [
     { title: '操作', dataIndex: 'action', width: 112 },
     { title: '改动点', dataIndex: 'detail' },
@@ -25,7 +27,13 @@ export default function ChangeLogDrawer({ pairLabel, logs, open, onClose }: Chan
 
   return (
     <Drawer
-      title={pairLabel ? `${pairLabel} 日志` : '日志'}
+      title={
+        pairLabel
+          ? source
+            ? `${pairLabel}（${RATE_SOURCE_LABEL[source]}）日志`
+            : `${pairLabel} 日志`
+          : '日志'
+      }
       width={640}
       open={open}
       onClose={onClose}

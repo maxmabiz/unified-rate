@@ -26,7 +26,7 @@ import {
   tradingDayChangeRatio,
 } from '@/utils/rateCalc';
 import { buildChangeLog, pairStatusChangeAction, pairStatusChangeDetail } from '@/utils/changeLog';
-import { enabledSources, quoteFeed } from '@/utils/source';
+import { applySourceEnabled, enabledSources, quoteFeed } from '@/utils/source';
 
 interface RateStoreValue {
   sourceSync: AppSnapshot['sourceSync'];
@@ -45,7 +45,7 @@ interface RateStoreValue {
   savePairBuffer: (id: string, source: RateSource, config: BufferConfig) => void;
   restorePairBuffer: (id: string, source: RateSource) => void;
   addPair: (input: PairConfigInput) => { ok: boolean; error?: string };
-  setPairEnabled: (id: string, enabled: boolean) => { ok: boolean; error?: string };
+  setSourceEnabled: (id: string, source: RateSource, enabled: boolean) => { ok: boolean; error?: string };
 }
 
 const RateStoreContext = createContext<RateStoreValue | null>(null);
@@ -405,31 +405,22 @@ export function RateProvider({ children }: { children: ReactNode }) {
     return { ok: true };
   }, [snapshot.pairs]);
 
-  const setPairEnabled = useCallback((id: string, enabled: boolean) => {
+  const setSourceEnabled = useCallback((id: string, source: RateSource, enabled: boolean) => {
     const target = snapshot.pairs.find((pair) => pair.id === id);
     if (!target) return { ok: false, error: '货币对不存在' };
-    if (target.enabled === enabled) return { ok: true };
+    if (!target.feeds[source]?.connected) return { ok: false, error: '该货币对未接入此数据源' };
+    if (target.feeds[source].enabled === enabled) return { ok: true };
 
     setSnapshot((prev) => {
       const pair = prev.pairs.find((item) => item.id === id);
-      if (!pair || pair.enabled === enabled) return prev;
+      if (!pair || !pair.feeds[source]?.connected || pair.feeds[source].enabled === enabled) return prev;
       const calculatedAt = nowText();
-      const nextFeeds = {
-        reuters: pair.feeds.reuters.connected
-          ? { ...pair.feeds.reuters, enabled, configUpdatedAt: calculatedAt }
-          : pair.feeds.reuters,
-        investing: pair.feeds.investing.connected
-          ? { ...pair.feeds.investing, enabled, configUpdatedAt: calculatedAt }
-          : pair.feeds.investing,
-      };
-      const nextPairs = prev.pairs.map((item) =>
-        item.id === id
-          ? { ...item, feeds: nextFeeds, enabled, configUpdatedAt: calculatedAt }
-          : item,
-      );
+      const nextPair = applySourceEnabled(pair, source, enabled, calculatedAt);
+      const nextPairs = prev.pairs.map((item) => (item.id === id ? nextPair : item));
       const log = buildChangeLog({
         pairId: id,
         pairLabel: pair.pairLabel,
+        source,
         action: pairStatusChangeAction(enabled),
         detail: pairStatusChangeDetail(enabled),
         changedAt: calculatedAt,
@@ -440,7 +431,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
         lastCalculatedAt: prev.lastCalculatedAt,
         pairs: nextPairs,
         officialQuotes: enabled
-          ? rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, [id], prev.globalBuffer)
+          ? rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, [id], prev.globalBuffer, false, [source])
           : prev.officialQuotes,
         changeLogs: [log, ...prev.changeLogs],
       };
@@ -468,7 +459,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
       savePairBuffer,
       restorePairBuffer,
       addPair,
-      setPairEnabled,
+      setSourceEnabled,
     }),
     [
       snapshot.sourceSync,
@@ -487,7 +478,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
       savePairBuffer,
       restorePairBuffer,
       addPair,
-      setPairEnabled,
+      setSourceEnabled,
     ],
   );
 

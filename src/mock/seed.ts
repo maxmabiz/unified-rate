@@ -313,6 +313,7 @@ export function seedChangeLogs(): ConfigChangeLog[] {
     buildChangeLog({
       pairId: 'USDCNY',
       pairLabel: 'USD/CNY',
+      source: 'reuters',
       action: '启用',
       detail: pairStatusChangeDetail(true),
       changedAt: '2026-08-12 10:18:22',
@@ -321,14 +322,25 @@ export function seedChangeLogs(): ConfigChangeLog[] {
     buildChangeLog({
       pairId: 'USDCNY',
       pairLabel: 'USD/CNY',
+      source: 'reuters',
       action: '停用',
       detail: pairStatusChangeDetail(false),
       changedAt: '2026-08-11 16:05:40',
       operator: '李财务',
     }),
     buildChangeLog({
+      pairId: 'USDCNY',
+      pairLabel: 'USD/CNY',
+      source: 'investing',
+      action: '启用',
+      detail: pairStatusChangeDetail(true),
+      changedAt: '2026-08-12 10:20:08',
+      operator: '李财务',
+    }),
+    buildChangeLog({
       pairId: 'GBPCNY',
       pairLabel: 'GBP/CNY',
+      source: 'investing',
       action: '启用',
       detail: pairStatusChangeDetail(true),
       changedAt: '2026-08-11 09:06:14',
@@ -337,6 +349,7 @@ export function seedChangeLogs(): ConfigChangeLog[] {
     buildChangeLog({
       pairId: 'GBPCNY',
       pairLabel: 'GBP/CNY',
+      source: 'investing',
       action: '停用',
       detail: pairStatusChangeDetail(false),
       changedAt: '2026-08-10 11:20:03',
@@ -345,6 +358,7 @@ export function seedChangeLogs(): ConfigChangeLog[] {
     buildChangeLog({
       pairId: 'USDHKD',
       pairLabel: 'USD/HKD',
+      source: 'reuters',
       action: '启用',
       detail: pairStatusChangeDetail(true),
       changedAt: '2026-08-13 15:40:18',
@@ -353,6 +367,7 @@ export function seedChangeLogs(): ConfigChangeLog[] {
     buildChangeLog({
       pairId: 'USDHKD',
       pairLabel: 'USD/HKD',
+      source: 'reuters',
       action: '停用',
       detail: pairStatusChangeDetail(false),
       changedAt: '2026-08-13 15:22:51',

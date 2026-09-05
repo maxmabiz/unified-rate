@@ -29,6 +29,36 @@ describe('配置变更日志', () => {
       false,
     );
     expect(pairConfigLogs(snapshot.changeLogs, 'USDCNY').length).toBeGreaterThan(0);
+    expect(pairConfigLogs(snapshot.changeLogs, 'USDCNY', 'reuters').every((log) => !log.source || log.source === 'reuters')).toBe(
+      true,
+    );
+    expect(pairConfigLogs(snapshot.changeLogs, 'USDCNY', 'investing').some((log) => log.source === 'investing')).toBe(
+      true,
+    );
+  });
+
+  it('货币对配置日志可按数据源收窄', () => {
+    const logs = [
+      buildChangeLog({
+        pairId: 'USDCNY',
+        pairLabel: 'USD/CNY',
+        source: 'reuters',
+        action: '启用',
+        detail: pairStatusChangeDetail(true),
+        changedAt: '2026-08-18 12:00:00',
+      }),
+      buildChangeLog({
+        pairId: 'USDCNY',
+        pairLabel: 'USD/CNY',
+        source: 'investing',
+        action: '停用',
+        detail: pairStatusChangeDetail(false),
+        changedAt: '2026-08-18 11:30:00',
+      }),
+    ];
+    const reuters = pairConfigLogs(logs, 'USDCNY', 'reuters');
+    expect(reuters).toHaveLength(1);
+    expect(reuters[0].source).toBe('reuters');
   });
 
   it('货币对配置日志不展示更改数据源', () => {
