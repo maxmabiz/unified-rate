@@ -12,11 +12,11 @@ export const router = createBrowserRouter(
       path: '/',
       element: <MainLayout />,
       children: [
-        { index: true, element: <Navigate to="/data" replace /> },
+        { index: true, element: <Navigate to="/pairs" replace /> },
         { path: 'data', element: <RateDataPage /> },
         { path: 'business-rates', element: <BusinessRatesPage /> },
         { path: 'pairs', element: <PairConfigPage /> },
-        { path: '*', element: <Navigate to="/data" replace /> },
+        { path: '*', element: <Navigate to="/pairs" replace /> },
       ],
     },
   ],
