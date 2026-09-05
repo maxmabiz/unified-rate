@@ -376,6 +376,11 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.buffer-cell .buffer-value.is-custom {
+  color: #1677ff;
+  font-weight: 500;
+}
+
 .buffer-cell .buffer-config-link.ant-btn-link {
   padding-inline: 0;
   height: auto;
@@ -395,6 +400,13 @@ body {
   align-items: center;
   justify-content: space-between;
   width: 100%;
+}
+
+.buffer-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .compact-table .ant-table-tbody > tr:hover > td {

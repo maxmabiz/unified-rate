@@ -1,7 +1,8 @@
-import { useEffect, useMemo } from 'react';
-import { Alert, Button, Form, InputNumber, Modal, Space, Table, Typography } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, Button, Form, InputNumber, Modal, Segmented, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import type { BufferConfig, OfficialQuote } from '@/types';
+import { RATE_SOURCE_LABEL } from '@/constants';
+import { RATE_SOURCE_IDS, type BufferConfig, type OfficialQuote, type RateSource } from '@/types';
 import { isCustomDayQuote } from '@/utils/buffer';
 import { computeQuotes, formatRate, fractionToPercentNumber, percentToFraction } from '@/utils/rateCalc';
 
@@ -39,6 +40,7 @@ export default function BufferConfigModal({
   onRestore,
 }: BufferConfigModalProps) {
   const [form] = Form.useForm<{ volatility: number; fee: number }>();
+  const [previewSource, setPreviewSource] = useState<RateSource>(RATE_SOURCE_IDS[0]);
   const volatility = Form.useWatch('volatility', form) ?? fractionToPercentNumber(initial.volatilityBuffer);
   const fee = Form.useWatch('fee', form) ?? fractionToPercentNumber(initial.fee);
 
@@ -48,7 +50,9 @@ export default function BufferConfigModal({
       volatility: fractionToPercentNumber(initial.volatilityBuffer),
       fee: fractionToPercentNumber(initial.fee),
     });
-  }, [form, initial, open]);
+    const first = RATE_SOURCE_IDS.find((source) => previewQuotes.some((item) => item.quoteSource === source));
+    setPreviewSource(first ?? RATE_SOURCE_IDS[0]);
+  }, [form, initial, open, previewQuotes]);
 
   const combinedPercent = Number(((volatility ?? 0) + (fee ?? 0)).toFixed(2));
   const nextConfig: BufferConfig = {
@@ -56,7 +60,9 @@ export default function BufferConfigModal({
     fee: percentToFraction(fee ?? 0),
   };
 
-  const sourceQuotes = quote ? [quote] : previewQuotes;
+  const sourceQuotes = quote
+    ? [quote]
+    : previewQuotes.filter((item) => item.quoteSource === previewSource);
 
   const previewRows = useMemo<PreviewRow[]>(() => {
     return sourceQuotes.map((item) => {
@@ -172,12 +178,25 @@ export default function BufferConfigModal({
         </Form.Item>
       </Form>
 
-      <Text strong>计算预览</Text>
+      <div className="buffer-preview-head">
+        <Text strong>计算预览</Text>
+        {quote ? null : (
+          <Segmented
+            size="small"
+            value={previewSource}
+            options={RATE_SOURCE_IDS.map((source) => ({
+              value: source,
+              label: RATE_SOURCE_LABEL[source],
+            }))}
+            onChange={(value) => setPreviewSource(value as RateSource)}
+          />
+        )}
+      </div>
       {quote ? null : (
         <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
           {previewRows.length
-            ? '预览点击「重新计算」后的报价（仅跟随全局的货币对）'
-            : '当前有效日没有跟随全局的货币对，保存后仅更新全局默认'}
+            ? `预览点击「重新计算」后 ${RATE_SOURCE_LABEL[previewSource]} 的报价（仅跟随全局）`
+            : `${RATE_SOURCE_LABEL[previewSource]} 当前没有跟随全局的货币对，保存后仅更新全局默认`}
         </Text>
       )}
       <Table

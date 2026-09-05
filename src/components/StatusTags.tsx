@@ -1,4 +1,4 @@
-import { Tag } from 'antd';
+import { Tag, Tooltip } from 'antd';
 import { RATE_SOURCE_LABEL } from '@/constants';
 import type { RateSource } from '@/types';
 
@@ -24,13 +24,15 @@ export function LockedTag() {
 
 export function CustomBufferTag({ onClick }: { onClick?: () => void }) {
   return (
-    <Tag
-      color="processing"
-      className={onClick ? 'buffer-custom-tag is-clickable' : 'buffer-custom-tag'}
-      onClick={onClick}
-    >
-      修改
-    </Tag>
+    <Tooltip title="当天已单独配置，重新计算不会覆盖">
+      <Tag
+        color="processing"
+        className={onClick ? 'buffer-custom-tag is-clickable' : 'buffer-custom-tag'}
+        onClick={onClick}
+      >
+        已改
+      </Tag>
+    </Tooltip>
   );
 }
 

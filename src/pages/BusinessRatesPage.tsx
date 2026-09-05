@@ -158,17 +158,16 @@ export default function BusinessRatesPage() {
       title: '综合缓冲',
       dataIndex: 'combinedBuffer',
       align: 'right',
-      width: 136,
+      width: 168,
       render: (value: string, record) => {
         const locked = isQuoteLocked(record.quoteDate, unlockedQuoteDate);
         const canEdit = !locked && isSourcePairEnabled(record.pairId, record.quoteSource);
         const custom = isCustomDayQuote(record);
         return (
           <span className="buffer-cell">
-            <span className="buffer-value">{formatPercent(value)}</span>
-            {custom ? (
-              <CustomBufferTag onClick={canEdit ? () => setBufferQuote(record) : undefined} />
-            ) : canEdit ? (
+            <span className={`buffer-value${custom ? ' is-custom' : ''}`}>{formatPercent(value)}</span>
+            {custom ? <CustomBufferTag onClick={canEdit ? () => setBufferQuote(record) : undefined} /> : null}
+            {canEdit ? (
               <Button type="link" className="buffer-config-link" onClick={() => setBufferQuote(record)}>
                 修改
               </Button>
@@ -368,7 +367,7 @@ export default function BusinessRatesPage() {
           columns={columns}
           dataSource={filtered}
           tableLayout="fixed"
-          scroll={{ x: 1088 }}
+          scroll={{ x: 1120 }}
           pagination={{
             pageSize: 20,
             showTotal: (total) => `共 ${total} 条`,
