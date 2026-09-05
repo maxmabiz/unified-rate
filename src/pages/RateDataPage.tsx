@@ -162,7 +162,7 @@ export default function RateDataPage() {
           <Form.Item name="dataDate" label="数据日期">
             <DatePicker style={{ width: 148 }} />
           </Form.Item>
-          <Form.Item>
+          <Form.Item className="filter-actions">
             <Space>
               <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>
                 查询

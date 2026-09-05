@@ -255,7 +255,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
         : [];
       return {
         ...prev,
-        lastCalculatedAt: calculatedAt,
+        lastCalculatedAt: prev.lastCalculatedAt,
         sourceSync: {
           ...prev.sourceSync,
           ...Object.fromEntries(
@@ -332,7 +332,6 @@ export function RateProvider({ children }: { children: ReactNode }) {
       const calculatedAt = nowText();
       return {
         ...prev,
-        lastCalculatedAt: calculatedAt,
         officialQuotes: upsertQuote(
           prev.officialQuotes,
           buildOfficialQuote(pair, unlocked, calculatedAt, config, true, source),
@@ -349,7 +348,6 @@ export function RateProvider({ children }: { children: ReactNode }) {
       const calculatedAt = nowText();
       return {
         ...prev,
-        lastCalculatedAt: calculatedAt,
         officialQuotes: upsertQuote(
           prev.officialQuotes,
           buildOfficialQuote(pair, unlocked, calculatedAt, prev.globalBuffer, false, source),
@@ -400,7 +398,6 @@ export function RateProvider({ children }: { children: ReactNode }) {
       ];
       return {
         ...prev,
-        lastCalculatedAt: calculatedAt,
         pairs: nextPairs,
         officialQuotes: rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, [id], prev.globalBuffer),
       };
@@ -440,7 +437,7 @@ export function RateProvider({ children }: { children: ReactNode }) {
       });
       return {
         ...prev,
-        lastCalculatedAt: enabled ? calculatedAt : prev.lastCalculatedAt,
+        lastCalculatedAt: prev.lastCalculatedAt,
         pairs: nextPairs,
         officialQuotes: enabled
           ? rebuildOpenDayQuotes(nextPairs, prev.officialQuotes, calculatedAt, [id], prev.globalBuffer)

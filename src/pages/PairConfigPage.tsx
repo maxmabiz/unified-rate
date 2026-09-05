@@ -127,7 +127,7 @@ export default function PairConfigPage() {
               ]}
             />
           </Form.Item>
-          <Form.Item>
+          <Form.Item className="filter-actions">
             <Space>
               <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>
                 查询

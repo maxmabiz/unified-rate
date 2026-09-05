@@ -12,7 +12,7 @@ import { useRateStore } from '@/store/RateStore';
 import { RATE_SOURCE_IDS, type BufferConfig, type OfficialQuote, type RateSource } from '@/types';
 import { customDayQuoteCount, isCustomDayQuote } from '@/utils/buffer';
 import { formatDateTime } from '@/utils/date';
-import { isQuoteLocked, latestQuoteDate, quoteWindowLabel } from '@/utils/officialQuote';
+import { isQuoteLocked, latestQuoteDate } from '@/utils/officialQuote';
 import { combinedBufferOf, formatPercent, formatRate } from '@/utils/rateCalc';
 import { enabledSources } from '@/utils/source';
 
@@ -35,7 +35,6 @@ export default function BusinessRatesPage() {
     pairs,
     officialQuotes,
     unlockedQuoteDate,
-    lastCalculatedAt,
     globalBuffer,
     calculating,
     recalculate,
@@ -107,16 +106,6 @@ export default function BusinessRatesPage() {
     [officialQuotes, latestDate, pairById],
   );
 
-  const metaDateLabel = selectedQuoteDate
-    ? `${selectedQuoteDate}${isQuoteLocked(selectedQuoteDate, unlockedQuoteDate) ? '（已锁定）' : ''}`
-    : filters.quoteDate === ''
-      ? '全部'
-      : (latestDate ?? '-');
-  const metaQuote = filtered[0] ?? officialQuotes.find((item) => item.quoteDate === (selectedQuoteDate || latestDate));
-  const metaCalculatedAt = selectedQuoteDate && selectedQuoteDate !== latestDate
-    ? metaQuote?.calculatedAt
-    : lastCalculatedAt;
-
   const handleSaveGlobal = (config: BufferConfig) => {
     saveGlobalBuffer(config);
     setBufferOpen(false);
@@ -150,30 +139,26 @@ export default function BusinessRatesPage() {
   };
 
   const columns: ColumnsType<OfficialQuote> = [
-    { title: '报价数据日', dataIndex: 'quoteDate', width: 112 },
-    {
-      title: '货币对',
-      dataIndex: 'pairLabel',
-      width: 112,
-    },
+    { title: '报价数据日', dataIndex: 'quoteDate', width: 108 },
+    { title: '货币对', dataIndex: 'pairLabel', width: 96 },
     {
       title: '数据来源',
       dataIndex: 'quoteSource',
-      width: 112,
+      width: 100,
       render: (source: OfficialQuote['quoteSource']) => <SourceTag source={source} />,
     },
     {
       title: '7日均价',
       dataIndex: 'avg7',
       align: 'right',
-      width: 112,
+      width: 100,
       render: (value: string) => <span className="num-cell">{formatRate(value, 4)}</span>,
     },
     {
       title: '综合缓冲',
       dataIndex: 'combinedBuffer',
       align: 'right',
-      width: 120,
+      width: 136,
       render: (value: string, record) => {
         const locked = isQuoteLocked(record.quoteDate, unlockedQuoteDate);
         const canEdit = !locked && isSourcePairEnabled(record.pairId, record.quoteSource);
@@ -200,7 +185,7 @@ export default function BusinessRatesPage() {
       ),
       dataIndex: 'quoteCcy1',
       align: 'right',
-      width: 120,
+      width: 112,
       render: (value: string, record) => (
         <Tooltip title={`${record.currency1} 结算`}>
           <span className="num-cell quote-cell">{formatRate(value, 1)}</span>
@@ -215,7 +200,7 @@ export default function BusinessRatesPage() {
       ),
       dataIndex: 'quoteCcy2',
       align: 'right',
-      width: 120,
+      width: 112,
       render: (value: string, record) => (
         <Tooltip title={`${record.currency2} 结算`}>
           <span className="num-cell quote-cell">{formatRate(value, 1)}</span>
@@ -225,7 +210,7 @@ export default function BusinessRatesPage() {
     {
       title: '计算时间',
       dataIndex: 'calculatedAt',
-      width: 168,
+      width: 156,
       render: (value: string) => formatDateTime(value),
     },
     {
@@ -249,59 +234,42 @@ export default function BusinessRatesPage() {
 
   return (
     <div className="page-wrap">
-      <div className="page-header">
-        <Title level={3}>履约报价汇率</Title>
-        <Paragraph className="page-desc">
-          官方报价按行情日存档。默认查看最新报价日；历史日报价已冻结，仅可查阅。缓冲因子默认跟随全局，当天有效报价可单独配置，不影响下一报价日。
-        </Paragraph>
+      <div className="page-header page-header-split">
+        <div className="page-header-main">
+          <Title level={3}>履约报价汇率</Title>
+          <Paragraph className="page-desc">
+            官方报价按行情日存档。默认最新日可改缓冲、可重算；历史日只读。各接入数据源各出一条报价。
+          </Paragraph>
+        </div>
+        <div className="page-toolbar-cluster">
+          <div className="page-toolbar-fact">
+            <span className="k">综合缓冲因子</span>
+            <span className="v">{formatPercent(combinedBufferOf(globalBuffer))}</span>
+          </div>
+          {viewedExceptionCount > 0 ? (
+            <div className="page-toolbar-fact">
+              <span className="k">单独配置</span>
+              <span className="v">{viewedExceptionCount} 条</span>
+            </div>
+          ) : null}
+          <Button icon={<SettingOutlined />} onClick={() => setBufferOpen(true)}>
+            缓冲因子配置
+          </Button>
+          <Button
+            type="primary"
+            icon={<CalculatorOutlined />}
+            loading={calculating}
+            disabled={!enabledCount}
+            onClick={() => setRecalcOpen(true)}
+          >
+            重新计算
+          </Button>
+        </div>
       </div>
 
       <Card className="page-card" variant="outlined">
-        <div className="meta-strip">
-          <div className="meta-stats">
-            <div className="meta-stat">
-              <span className="k">报价数据日</span>
-              <span className="v">{metaDateLabel}</span>
-            </div>
-            <div className="meta-stat">
-              <span className="k">近7交易日</span>
-              <span className="v">{metaQuote ? quoteWindowLabel(metaQuote.history) : '-'}</span>
-            </div>
-            <div className="meta-stat">
-              <span className="k">最近计算时间</span>
-              <span className="v">{formatDateTime(metaCalculatedAt)}</span>
-            </div>
-            <div className="meta-stat">
-              <span className="k">综合缓冲因子</span>
-              <span className="v">{formatPercent(combinedBufferOf(globalBuffer))}</span>
-            </div>
-            {viewedExceptionCount > 0 ? (
-              <div className="meta-stat">
-                <span className="k">单独配置</span>
-                <span className="v">{viewedExceptionCount} 条报价</span>
-              </div>
-            ) : null}
-          </div>
-          <div className="meta-actions">
-            <Space>
-              <Button icon={<SettingOutlined />} onClick={() => setBufferOpen(true)}>
-                缓冲因子配置
-              </Button>
-              <Button
-                type="primary"
-                icon={<CalculatorOutlined />}
-                loading={calculating}
-                disabled={!enabledCount}
-                onClick={() => setRecalcOpen(true)}
-              >
-                重新计算
-              </Button>
-            </Space>
-          </div>
-        </div>
-
         <Form
-          className="filter-bar"
+          className="filter-bar business-rates-filters"
           form={form}
           layout="inline"
           colon={false}
@@ -324,56 +292,58 @@ export default function BusinessRatesPage() {
             });
           }}
         >
-          <Form.Item name="currency1" label="基准货币">
-            <Select
-              allowClear
-              placeholder="全部"
-              style={{ width: 120 }}
-              options={currencies1.map((item) => ({ value: item, label: item }))}
-            />
-          </Form.Item>
-          <Form.Item name="currency2" label="计价货币">
-            <Select
-              allowClear
-              placeholder="全部"
-              style={{ width: 120 }}
-              options={currencies2.map((item) => ({ value: item, label: item }))}
-            />
-          </Form.Item>
-          <Form.Item name="pair" label="货币对">
-            <Select allowClear placeholder="全部" style={{ width: 148 }} options={pairOptions} />
-          </Form.Item>
-          <Form.Item name="source" label="数据来源">
-            <Select
-              allowClear
-              placeholder="全部"
-              style={{ width: 132 }}
-              options={RATE_SOURCE_IDS.map((source) => ({
-                value: source,
-                label: RATE_SOURCE_LABEL[source],
-              }))}
-              onChange={() => form.setFieldValue('pair', undefined)}
-            />
-          </Form.Item>
-          <Form.Item name="quoteDate" label="报价日期">
-            <DatePicker
-              style={{ width: 148 }}
-              allowClear
-              disabledDate={(date) => !quoteDates.includes(date.format('YYYY-MM-DD'))}
-            />
-          </Form.Item>
-          <Form.Item name="status" label="状态">
-            <Select
-              allowClear
-              placeholder="全部"
-              style={{ width: 120 }}
-              options={[
-                { value: 'effective', label: '有效' },
-                { value: 'locked', label: '已锁定' },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item>
+          <div className="filter-fields">
+            <Form.Item name="quoteDate" label="报价日期">
+              <DatePicker
+                className="filter-control"
+                allowClear
+                disabledDate={(date) => !quoteDates.includes(date.format('YYYY-MM-DD'))}
+              />
+            </Form.Item>
+            <Form.Item name="pair" label="货币对">
+              <Select allowClear placeholder="全部" className="filter-control" options={pairOptions} />
+            </Form.Item>
+            <Form.Item name="source" label="数据来源">
+              <Select
+                allowClear
+                placeholder="全部"
+                className="filter-control"
+                options={RATE_SOURCE_IDS.map((source) => ({
+                  value: source,
+                  label: RATE_SOURCE_LABEL[source],
+                }))}
+                onChange={() => form.setFieldValue('pair', undefined)}
+              />
+            </Form.Item>
+            <Form.Item name="status" label="状态">
+              <Select
+                allowClear
+                placeholder="全部"
+                className="filter-control"
+                options={[
+                  { value: 'effective', label: '有效' },
+                  { value: 'locked', label: '已锁定' },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item name="currency1" label="基准货币">
+              <Select
+                allowClear
+                placeholder="全部"
+                className="filter-control"
+                options={currencies1.map((item) => ({ value: item, label: item }))}
+              />
+            </Form.Item>
+            <Form.Item name="currency2" label="计价货币">
+              <Select
+                allowClear
+                placeholder="全部"
+                className="filter-control"
+                options={currencies2.map((item) => ({ value: item, label: item }))}
+              />
+            </Form.Item>
+          </div>
+          <div className="filter-actions">
             <Space>
               <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>
                 查询
@@ -388,17 +358,17 @@ export default function BusinessRatesPage() {
                 重置
               </Button>
             </Space>
-          </Form.Item>
+          </div>
         </Form>
 
         <Table
-          className="compact-table"
+          className="compact-table business-rates-table"
           size="middle"
           rowKey="id"
           columns={columns}
           dataSource={filtered}
           tableLayout="fixed"
-          scroll={{ x: 1180 }}
+          scroll={{ x: 1088 }}
           pagination={{
             pageSize: 20,
             showTotal: (total) => `共 ${total} 条`,
@@ -440,7 +410,7 @@ export default function BusinessRatesPage() {
         destroyOnHidden
       >
         <Paragraph>
-            {latestDate
+          {latestDate
             ? `将按各接入数据源截至 ${latestDate} 的近 7 个交易日均价，重算当天仍跟随全局的报价${
                 openDayExceptionCount ? `（不含 ${openDayExceptionCount} 条当日例外）` : ''
               }。`

@@ -121,6 +121,17 @@ body {
   margin-bottom: 12px;
 }
 
+.page-header-split {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px 24px;
+}
+
+.page-header-split .page-header-main {
+  min-width: 0;
+}
+
 .page-header h3.ant-typography {
   margin: 0 0 4px !important;
   font-size: 18px;
@@ -209,6 +220,79 @@ body {
   flex-shrink: 0;
 }
 
+.page-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.page-toolbar-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.page-toolbar-fact {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 22px;
+  white-space: nowrap;
+}
+
+.page-toolbar-fact .k {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.page-toolbar-fact .v {
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.88);
+  font-variant-numeric: tabular-nums;
+}
+
+.business-rates-filters.filter-bar {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+
+.business-rates-filters .filter-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.business-rates-filters .filter-control {
+  width: 128px;
+}
+
+.business-rates-filters .filter-actions {
+  margin-left: 0;
+  flex-shrink: 0;
+}
+
+.business-rates-table.compact-table table {
+  table-layout: fixed !important;
+}
+
+.business-rates-table.compact-table .ant-table-thead > tr > th,
+.business-rates-table.compact-table .ant-table-tbody > tr > td {
+  padding-inline: 12px !important;
+}
+
+.business-rates-table .ant-table-container,
+.business-rates-table .ant-table-content {
+  overflow-x: auto;
+}
+
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
@@ -220,6 +304,10 @@ body {
 .filter-bar.ant-form-inline .ant-form-item {
   margin-inline-end: 0;
   margin-bottom: 0;
+}
+
+.filter-bar .filter-actions {
+  margin-left: auto;
 }
 
 .filter-bar .ant-form-item-label > label {
